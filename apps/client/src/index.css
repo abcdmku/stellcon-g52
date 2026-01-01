@@ -1,0 +1,45 @@
+﻿@import url("https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@300;400;500;600&family=Oxanium:wght@300;400;600;700&display=swap");
+
+:root {
+  --bg: #0b0f1d;
+  --bg-deep: #070a14;
+  --panel: rgba(17, 22, 34, 0.9);
+  --panel-strong: rgba(24, 30, 44, 0.94);
+  --panel-border: rgba(255, 255, 255, 0.08);
+  --text: #dbe4f3;
+  --muted: #8f9bb3;
+  --fusion: #d05cff;
+  --terrain: #4edb7d;
+  --metal: #f3c457;
+  --crystal: #56c9ff;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: "Oxanium", "Chakra Petch", sans-serif;
+  color: var(--text);
+  background: radial-gradient(circle at 20% 20%, rgba(27, 37, 58, 0.9), transparent 55%),
+    radial-gradient(circle at 80% 10%, rgba(35, 21, 54, 0.7), transparent 40%),
+    linear-gradient(120deg, var(--bg) 10%, var(--bg-deep) 90%);
+  min-height: 100vh;
+}
+
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  background-image: radial-gradient(rgba(255, 255, 255, 0.05) 1px, transparent 0);
+  background-size: 220px 220px;
+  opacity: 0.12;
+  pointer-events: none;
+}
+
+button,
+input,
+select {
+  font-family: inherit;
+}
