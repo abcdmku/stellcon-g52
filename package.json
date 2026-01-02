@@ -4,8 +4,9 @@
   "private": true,
   "type": "commonjs",
   "scripts": {
-    "dev": "pnpm -r --parallel dev",
-    "build": "pnpm -r build",
+    "dev": "pnpm -r --parallel --filter ./apps/* --filter ./packages/* dev",
+    "build": "pnpm -r --filter ./apps/* --filter ./packages/* build",
+    "typecheck": "pnpm -r --filter ./apps/* --filter ./packages/* typecheck",
     "start": "pnpm --filter server start",
     "screenshot": "node tools/screenshot/screenshot.js",
     "compare": "node tools/screenshot/compare.js"
@@ -13,6 +14,8 @@
   "devDependencies": {
     "pixelmatch": "^7.1.0",
     "pngjs": "^7.0.0",
-    "puppeteer": "^24.34.0"
+    "puppeteer": "^24.34.0",
+    "typescript": "^5.8.2",
+    "@types/node": "^22.13.1"
   }
 }
