@@ -94,7 +94,7 @@ export interface ResolutionBattle {
   defenderColorId: string | null;
   attackerId: string | null;
   attackerStartFleets: number;
-  attackerSkirmishRounds: ResolutionSkirmishRound[] | null;
+  attackerSkirmishRounds: ResolutionSkirmishRound[][];
   rounds: ResolutionBattleRound[];
   winnerId: string | null;
   winnerFleets: number;

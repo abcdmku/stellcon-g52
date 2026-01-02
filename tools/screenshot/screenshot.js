@@ -12,6 +12,7 @@ const outputPath = path.join(__dirname, "screenshot.png");
 const referencePath = path.join(rootDir, "game.PNG");
 
 function buildClient() {
+  execSync("pnpm --filter @stellcon/shared build", { stdio: "inherit", cwd: rootDir });
   execSync("pnpm --filter client build", { stdio: "inherit", cwd: rootDir });
 }
 
