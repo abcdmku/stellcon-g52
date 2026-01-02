@@ -80,7 +80,7 @@ export const demoState = {
       wormholeTurns: 0,
       alliances: {},
       locked: false,
-      orders: { placements: {}, moves: [], powerups: [] },
+      orders: { placements: {}, moves: [], powerups: [], research: [] },
     },
     p2: {
       id: "p2",
@@ -92,7 +92,7 @@ export const demoState = {
       wormholeTurns: 0,
       alliances: {},
       locked: false,
-      orders: { placements: {}, moves: [], powerups: [] },
+      orders: { placements: {}, moves: [], powerups: [], research: [] },
     },
   },
 };

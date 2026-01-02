@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { io } from "socket.io-client";
 import { POWERUPS, RESOURCE_COLORS, RESOURCE_TYPES } from "@stellcon/shared";
+import type { GameListItem, GameState, Orders, PowerupKey } from "@stellcon/shared";
 import { demoPlayerId, demoState } from "./demoState.js";
 import Board from "./features/board/Board.tsx";
 import Lobby from "./features/lobby/Lobby.jsx";
 import PlayerCard from "./features/lobby/PlayerCard.jsx";
 import { emptyOrders } from "./shared/lib/orders";
+import { useGameSocket } from "./shared/hooks/useGameSocket";
+import { useOrders } from "./shared/hooks/useOrders";
 import "./App.css";
 
 const SERVER_URL = import.meta.env.VITE_SERVER_URL || "http://localhost:4000";
@@ -91,28 +93,79 @@ function PowerupIcon({ type, size = 18 } = {}) {
 }
 
 function App() {
-  const [socket, setSocket] = useState(null);
-  const [state, setState] = useState(DEMO_MODE ? demoState : null);
-  const [playerId, setPlayerId] = useState(DEMO_MODE ? demoPlayerId : null);
-  const [gameId, setGameId] = useState(DEMO_MODE ? demoState.id : null);
+  const [state, setState] = useState<GameState | null>(DEMO_MODE ? (demoState as GameState) : null);
+  const [playerId, setPlayerId] = useState<string | null>(DEMO_MODE ? demoPlayerId : null);
+  const [gameId, setGameId] = useState<string | null>(DEMO_MODE ? demoState.id : null);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
-  const [orders, setOrders] = useState(
-    DEMO_MODE ? demoState.players[demoPlayerId].orders : emptyOrders()
-  );
-  const [selectedId, setSelectedId] = useState(null);
-  const [moveOriginId, setMoveOriginId] = useState(null);
+  const { orders, resetOrders, replaceOrders, applyPlacement, queuePowerup, queueMove, removeMove, adjustMove } =
+    useOrders(DEMO_MODE ? (demoState.players[demoPlayerId].orders as Orders) : emptyOrders());
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [moveOriginId, setMoveOriginId] = useState<string | null>(null);
   const [placementMode, setPlacementMode] = useState(false);
-  const [powerupDraft, setPowerupDraft] = useState("");
+  const [powerupDraft, setPowerupDraft] = useState<PowerupKey | "">("");
   const [timer, setTimer] = useState(0);
-  const [availableGames, setAvailableGames] = useState([]);
-  const lastSeenTurnRef = useRef({ turn: null, phase: null });
-  const noticeTimeoutRef = useRef(null);
+  const [availableGames, setAvailableGames] = useState<GameListItem[]>([]);
+  const lastSeenTurnRef = useRef<{ turn: number | null; phase: string | null }>({ turn: null, phase: null });
+  const noticeTimeoutRef = useRef<number | null>(null);
+
+  const handleGameState = useCallback(
+    (gameState: GameState) => {
+      setState(gameState);
+      if (playerId && gameState?.turn != null) {
+        const last = lastSeenTurnRef.current;
+        const phaseChanged = last.phase !== gameState.phase;
+        const turnChanged = last.turn !== gameState.turn;
+
+        if ((turnChanged || phaseChanged) && gameState.phase === "planning") {
+          const serverOrders = gameState.players?.[playerId]?.orders;
+          replaceOrders(serverOrders);
+          setMoveOriginId(null);
+        }
+
+        lastSeenTurnRef.current = { turn: gameState.turn, phase: gameState.phase };
+      }
+      if (!selectedId && gameState?.systems?.length) {
+        setSelectedId(gameState.systems[0].id);
+      }
+    },
+    [playerId, replaceOrders, selectedId]
+  );
+
+  const handleGamesList = useCallback((games: GameListItem[]) => {
+    setAvailableGames(games || []);
+  }, []);
+
+  const handleAllianceRequest = useCallback((fromId: string) => {
+    setError(`Alliance request from ${fromId}. Check diplomacy panel.`);
+  }, []);
+
+  const socketCallbacks = useMemo(
+    () => ({
+      onGameState: handleGameState,
+      onGamesList: handleGamesList,
+      onAllianceRequest: handleAllianceRequest,
+    }),
+    [handleAllianceRequest, handleGameState, handleGamesList]
+  );
+
+  const {
+    socket,
+    createGame,
+    joinGame,
+    watchGame,
+    rejoinGame,
+    listGames,
+    updateOrders,
+    lockIn,
+    requestAlliance,
+    acceptAlliance,
+  } = useGameSocket(SERVER_URL, DEMO_MODE, socketCallbacks);
 
   const me = playerId && state?.players ? state.players[playerId] : null;
   const systems = state?.systems || [];
   const links = state?.links || {};
-  const selected = systems.find((system) => system.id === selectedId) || systems[0];
+  const selected = systems.find((system) => system.id === selectedId) ?? systems[0] ?? null;
   const totalPlaced = Object.values(orders.placements || {}).reduce((sum, value) => sum + Number(value || 0), 0);
   const fleetsRemaining = Math.max(0, (me?.fleetsToPlace || 0) - totalPlaced);
   const turnSeconds = Number(state?.config?.turnSeconds || 0);
@@ -126,7 +179,7 @@ function App() {
   const originTotalFleets = (originSystem?.fleets || 0) + (originSystem?.ownerId === playerId ? originPlacement : 0);
   const originAvailable = Math.max(0, originTotalFleets - queuedFromOrigin);
 
-  const flashNotice = (message) => {
+  const flashNotice = (message: string) => {
     if (noticeTimeoutRef.current) {
       window.clearTimeout(noticeTimeoutRef.current);
       noticeTimeoutRef.current = null;
@@ -142,13 +195,6 @@ function App() {
     return () => {
       if (noticeTimeoutRef.current) window.clearTimeout(noticeTimeoutRef.current);
     };
-  }, []);
-
-  useEffect(() => {
-    if (DEMO_MODE) return;
-    const nextSocket = io(SERVER_URL, { transports: ["websocket"] });
-    setSocket(nextSocket);
-    return () => nextSocket.disconnect();
   }, []);
 
   useEffect(() => {
@@ -177,7 +223,7 @@ function App() {
     if (gameId || playerId) return;
     const fromUrl = new URLSearchParams(window.location.search).get("game");
     if (fromUrl) {
-      socket.emit("watchGame", { gameId: fromUrl }, (response) => {
+      watchGame({ gameId: fromUrl }, (response) => {
         if (response?.error) setError(response.error);
       });
       setGameId(fromUrl);
@@ -188,61 +234,27 @@ function App() {
     try {
       const parsed = JSON.parse(stored);
       if (!parsed?.gameId || !parsed?.playerId) return;
-      socket.emit("rejoinGame", { gameId: parsed.gameId, playerId: parsed.playerId }, (response) => {
+      rejoinGame({ gameId: parsed.gameId, playerId: parsed.playerId }, (response) => {
         if (response?.error) {
           window.localStorage.removeItem("stellcon.session");
           return;
         }
         setGameId(response.gameId);
         setPlayerId(response.playerId);
-        setOrders(emptyOrders());
+        resetOrders();
       });
     } catch {
       window.localStorage.removeItem("stellcon.session");
     }
-  }, [socket, gameId, playerId]);
-
-  useEffect(() => {
-    if (!socket || DEMO_MODE) return;
-    socket.on("gameState", (gameState) => {
-      setState(gameState);
-      if (playerId && gameState?.turn != null) {
-        const last = lastSeenTurnRef.current;
-        const phaseChanged = last.phase !== gameState.phase;
-        const turnChanged = last.turn !== gameState.turn;
-
-        if ((turnChanged || phaseChanged) && gameState.phase === "planning") {
-          const serverOrders = gameState.players?.[playerId]?.orders;
-          setOrders(serverOrders || emptyOrders());
-          setMoveOriginId(null);
-        }
-
-        lastSeenTurnRef.current = { turn: gameState.turn, phase: gameState.phase };
-      }
-      if (!selectedId && gameState?.systems?.length) {
-        setSelectedId(gameState.systems[0].id);
-      }
-    });
-    socket.on("gamesList", (games) => {
-      setAvailableGames(games || []);
-    });
-    socket.on("allianceRequest", ({ fromId }) => {
-      setError(`Alliance request from ${fromId}. Check diplomacy panel.`);
-    });
-    return () => {
-      socket.off("gameState");
-      socket.off("gamesList");
-      socket.off("allianceRequest");
-    };
-  }, [socket, playerId, selectedId]);
+  }, [socket, gameId, playerId, rejoinGame, resetOrders, watchGame]);
 
   useEffect(() => {
     if (!socket || DEMO_MODE) return;
     if (gameId) return;
-    socket.emit("listGames", null, (response) => {
+    listGames((response) => {
       setAvailableGames(response?.games || []);
     });
-  }, [socket, gameId]);
+  }, [socket, gameId, listGames]);
 
   useEffect(() => {
     if (!state?.turnEndsAt) {
@@ -259,10 +271,10 @@ function App() {
   useEffect(() => {
     if (!socket || !playerId || DEMO_MODE) return;
     const timeout = setTimeout(() => {
-      socket.emit("updateOrders", { orders });
+      updateOrders({ orders });
     }, 150);
     return () => clearTimeout(timeout);
-  }, [orders, socket, playerId]);
+  }, [orders, socket, playerId, updateOrders]);
 
   useEffect(() => {
     if (!moveOriginId) return;
@@ -275,14 +287,14 @@ function App() {
   const handleCreate = ({ name, config, color }) => {
     if (!socket) return;
     setError("");
-    socket.emit("createGame", { name, config, color }, (response) => {
+    createGame({ name, config, color }, (response) => {
       if (response?.error) {
         setError(response.error);
         return;
       }
       setPlayerId(response.playerId);
       setGameId(response.gameId);
-      setOrders(emptyOrders());
+      resetOrders();
       window.localStorage.setItem(
         "stellcon.session",
         JSON.stringify({ gameId: response.gameId, playerId: response.playerId })
@@ -296,14 +308,14 @@ function App() {
   const handleJoin = ({ name, gameId: target, color }) => {
     if (!socket) return;
     setError("");
-    socket.emit("joinGame", { name, gameId: target, color }, (response) => {
+    joinGame({ name, gameId: target, color }, (response) => {
       if (response?.error) {
         setError(response.error);
         return;
       }
       setPlayerId(response.playerId);
       setGameId(response.gameId);
-      setOrders(emptyOrders());
+      resetOrders();
       window.localStorage.setItem(
         "stellcon.session",
         JSON.stringify({ gameId: response.gameId, playerId: response.playerId })
@@ -317,14 +329,14 @@ function App() {
   const handleWatch = (target) => {
     if (!socket) return;
     setError("");
-    socket.emit("watchGame", { gameId: target }, (response) => {
+    watchGame({ gameId: target }, (response) => {
       if (response?.error) {
         setError(response.error);
         return;
       }
       setPlayerId(null);
       setGameId(target);
-      setOrders(emptyOrders());
+      resetOrders();
       const params = new URLSearchParams(window.location.search);
       params.set("game", target);
       window.history.replaceState(null, "", `?${params.toString()}`);
@@ -332,19 +344,7 @@ function App() {
   };
 
   const handlePlacement = (systemId, delta) => {
-    setOrders((current) => {
-      const next = { ...current, placements: { ...current.placements } };
-      const currentValue = Number(next.placements[systemId] || 0);
-      const totalPlacedNow = Object.values(current.placements || {}).reduce((sum, value) => sum + Number(value || 0), 0);
-      const remainingNow = Math.max(0, Number(me?.fleetsToPlace || 0) - totalPlacedNow);
-      const updated = clamp(currentValue + delta, 0, currentValue + remainingNow);
-      if (updated === 0) {
-        delete next.placements[systemId];
-      } else {
-        next.placements[systemId] = updated;
-      }
-      return next;
-    });
+    applyPlacement(systemId, delta, Number(me?.fleetsToPlace || 0));
     setMoveOriginId(null);
   };
 
@@ -426,10 +426,7 @@ function App() {
       return false;
     }
 
-    setOrders((current) => ({
-      ...current,
-      powerups: [...current.powerups, { type: powerupDraft, targetId: system.id }],
-    }));
+    queuePowerup(powerupDraft as PowerupKey, system.id);
     setPowerupDraft("");
     setMoveOriginId(null);
     return true;
@@ -490,33 +487,20 @@ function App() {
           return;
         }
 
-        setOrders((current) => {
-          const moves = [...current.moves];
-          const origin = systems.find((entry) => entry.id === moveOriginId);
-          if (!origin || origin.ownerId !== playerId) return current;
-
-          const placement = Number(current.placements?.[moveOriginId] || 0);
-          const originFleets = (origin.fleets || 0) + placement;
-          const queued = moves.reduce(
-            (sum, move) => (move.fromId === moveOriginId ? sum + Number(move.count || 0) : sum),
-            0
-          );
-          const available = Math.max(0, originFleets - queued);
-          if (available <= 0) {
-            flashNotice("No fleets left at that origin.");
-            return current;
-          }
-
-          const existingIndex = moves.findIndex((move) => move.fromId === moveOriginId && move.toId === system.id);
-          if (existingIndex !== -1) {
-            const existing = moves[existingIndex];
-            moves[existingIndex] = { ...existing, count: Number(existing.count || 0) + 1 };
-            return { ...current, moves };
-          }
-
-          moves.push({ fromId: moveOriginId, toId: system.id, count: 1 });
-          return { ...current, moves };
-        });
+        const origin = systems.find((entry) => entry.id === moveOriginId);
+        if (!origin || origin.ownerId !== playerId) return;
+        const placement = Number(orders.placements?.[moveOriginId] || 0);
+        const originFleets = (origin.fleets || 0) + placement;
+        const queued = orders.moves.reduce(
+          (sum, move) => (move.fromId === moveOriginId ? sum + Number(move.count || 0) : sum),
+          0
+        );
+        const available = Math.max(0, originFleets - queued);
+        if (available <= 0) {
+          flashNotice("No fleets left at that origin.");
+          return;
+        }
+        queueMove(moveOriginId, system.id, origin.fleets || 0);
         return;
       }
 
@@ -546,30 +530,20 @@ function App() {
       return;
     }
 
-    setOrders((current) => {
-      const moves = [...current.moves];
-      const origin = systems.find((entry) => entry.id === moveOriginId);
-      if (!origin || origin.ownerId !== playerId) return current;
-
-      const placement = Number(current.placements?.[moveOriginId] || 0);
-      const originFleets = (origin.fleets || 0) + placement;
-      const queued = moves.reduce((sum, move) => (move.fromId === moveOriginId ? sum + Number(move.count || 0) : sum), 0);
-      const available = Math.max(0, originFleets - queued);
-      if (available <= 0) {
-        flashNotice("No fleets left at that origin.");
-        return current;
-      }
-
-      const existingIndex = moves.findIndex((move) => move.fromId === moveOriginId && move.toId === system.id);
-      if (existingIndex !== -1) {
-        const existing = moves[existingIndex];
-        moves[existingIndex] = { ...existing, count: Number(existing.count || 0) + 1 };
-        return { ...current, moves };
-      }
-
-      moves.push({ fromId: moveOriginId, toId: system.id, count: 1 });
-      return { ...current, moves };
-    });
+    const origin = systems.find((entry) => entry.id === moveOriginId);
+    if (!origin || origin.ownerId !== playerId) return;
+    const placement = Number(orders.placements?.[moveOriginId] || 0);
+    const originFleets = (origin.fleets || 0) + placement;
+    const queued = orders.moves.reduce(
+      (sum, move) => (move.fromId === moveOriginId ? sum + Number(move.count || 0) : sum),
+      0
+    );
+    const available = Math.max(0, originFleets - queued);
+    if (available <= 0) {
+      flashNotice("No fleets left at that origin.");
+      return;
+    }
+    queueMove(moveOriginId, system.id, origin.fleets || 0);
   };
 
   const handleClearOrigin = () => {
@@ -586,35 +560,15 @@ function App() {
   };
 
   const handleRemoveMove = (index) => {
-    setOrders((current) => ({
-      ...current,
-      moves: current.moves.filter((_, idx) => idx !== index),
-    }));
+    removeMove(index);
   };
 
   const handleAdjustMove = (index, delta) => {
-    setOrders((current) => {
-      const moves = [...current.moves];
-      const move = moves[index];
-      if (!move) return current;
-      const origin = systems.find((entry) => entry.id === move.fromId);
-      if (!origin || origin.ownerId !== playerId) return current;
-      const placement = Number(current.placements?.[move.fromId] || 0);
-      const originFleets = (origin.fleets || 0) + placement;
-      const queued = moves.reduce((sum, entry, idx) => {
-        if (entry.fromId !== move.fromId) return sum;
-        if (idx === index) return sum;
-        return sum + Number(entry.count || 0);
-      }, 0);
-      const maxForThis = Math.max(0, originFleets - queued);
-      const next = clamp(Number(move.count || 0) + delta, 0, maxForThis);
-      if (next <= 0) {
-        moves.splice(index, 1);
-        return { ...current, moves };
-      }
-      moves[index] = { ...move, count: next };
-      return { ...current, moves };
-    });
+    const move = orders.moves[index];
+    if (!move) return;
+    const origin = systems.find((entry) => entry.id === move.fromId);
+    if (!origin || origin.ownerId !== playerId) return;
+    adjustMove(index, delta, origin.fleets || 0);
   };
 
   const handleQueuePowerup = () => {
@@ -623,17 +577,17 @@ function App() {
   };
 
   const handleLockIn = () => {
-    socket?.emit("lockIn", null, (response) => {
+    lockIn((response) => {
       if (response?.error) setError(response.error);
     });
   };
 
   const handleAlliance = (targetId) => {
-    socket?.emit("requestAlliance", { targetId });
+    requestAlliance({ targetId });
   };
 
   const handleAcceptAlliance = (targetId) => {
-    socket?.emit("acceptAlliance", { fromId: targetId });
+    acceptAlliance({ fromId: targetId });
   };
 
   const handleLeaveGame = () => {
@@ -644,7 +598,7 @@ function App() {
     setGameId(null);
     setPlayerId(null);
     setState(null);
-    setOrders(emptyOrders());
+    resetOrders();
     setSelectedId(null);
     setMoveOriginId(null);
     setError("");
@@ -943,7 +897,7 @@ function App() {
   );
 }
 
-function clamp(value, min, max) {
+function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value));
 }
 

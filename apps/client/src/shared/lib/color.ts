@@ -1,4 +1,4 @@
-export function hexToRgba(hexColor: string, alpha: number) {
+export function hexToRgba(hexColor: string, alpha: number): string | null {
   const value = (hexColor || "").trim();
   if (!value.startsWith("#")) return null;
   const hex = value.slice(1);
