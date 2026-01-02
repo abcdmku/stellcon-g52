@@ -1,0 +1,299 @@
+import { nanoid } from "nanoid";
+import type { Server as IOServer, Socket } from "socket.io";
+import {
+  addPlayer,
+  beginResolution,
+  createGame,
+  finalizeResolution,
+  lockIn,
+  redactGameState,
+  setAlliance,
+  startGame,
+  startPlanningPhase,
+  submitOrders,
+} from "@stellcon/shared";
+import type { ClientToServerEvents, ServerToClientEvents, GameState } from "@stellcon/shared";
+import {
+  clearSession,
+  ensureGame,
+  getGame,
+  getSession,
+  getSocketsForGame,
+  listPublicGames,
+  trackSession,
+  type GameStore,
+} from "../store/gameStore.js";
+import { logServerError } from "../logging.js";
+
+type IO = IOServer<ClientToServerEvents, ServerToClientEvents>;
+type GameSocket = Socket<ClientToServerEvents, ServerToClientEvents>;
+type ServerGame = GameState & { started?: boolean };
+
+const BASE_RESOLVE_DELAY_MS = 1600;
+
+function normalizePlayerName(value: string) {
+  return String(value || "")
+    .trim()
+    .replace(/\s+/g, " ");
+}
+
+function ensureUniqueName(game: ServerGame, proposedName: string) {
+  const name = normalizePlayerName(proposedName);
+  if (!name) throw new Error("Name is required");
+  const lower = name.toLowerCase();
+  for (const player of Object.values(game.players || {})) {
+    if (normalizePlayerName(player.name).toLowerCase() === lower) {
+      throw new Error("Name already taken in this game");
+    }
+  }
+  return name;
+}
+
+export function registerSocketHandlers(io: IO, store: GameStore) {
+  const emitState = (gameId: string) => {
+    const game = getGame(store, gameId);
+    if (!game) return;
+    for (const [socketId, session] of getSocketsForGame(store, gameId)) {
+      const state = redactGameState(game, session.playerId);
+      io.to(socketId).emit("gameState", state);
+    }
+  };
+
+  const emitGamesList = () => {
+    io.emit("gamesList", listPublicGames(store));
+  };
+
+  const scheduleFinalize = (game: ServerGame) => {
+    if (store.resolveTimers.has(game.id)) {
+      clearTimeout(store.resolveTimers.get(game.id));
+    }
+    let delay = BASE_RESOLVE_DELAY_MS;
+    if (typeof game.resolutionEndsAt === "number" && game.resolutionEndsAt > Date.now()) {
+      delay = game.resolutionEndsAt - Date.now();
+    }
+    delay = Math.max(1200, delay);
+    game.resolutionEndsAt = Date.now() + delay;
+    const timer = setTimeout(() => {
+      try {
+        store.resolveTimers.delete(game.id);
+        finalizeResolution(game);
+        emitState(game.id);
+        emitGamesList();
+      } catch (error) {
+        logServerError("finalizeResolution", error, { gameId: game.id });
+        store.resolveTimers.delete(game.id);
+        try {
+          delete game.revealedMoves;
+          delete game.resolutionStartedAt;
+          delete game.resolutionEndsAt;
+          delete game.resolutionBattles;
+          delete game.resolutionPlan;
+          startPlanningPhase(game);
+          emitState(game.id);
+          emitGamesList();
+        } catch (recoverError) {
+          logServerError("recoverFinalize", recoverError, { gameId: game.id });
+        }
+      }
+    }, delay);
+    store.resolveTimers.set(game.id, timer);
+  };
+
+  const maybeStartGame = (game: ServerGame) => {
+    const players = Object.keys(game.players).length;
+    if (!game.started && players >= game.config.maxPlayers) {
+      game.started = true;
+      startGame(game);
+    }
+  };
+
+  const forceResolveIfExpired = () => {
+    const now = Date.now();
+    for (const game of store.games.values()) {
+      try {
+        if (game.phase !== "planning") continue;
+        if (!game.turnEndsAt || game.turnEndsAt > now) continue;
+        for (const player of Object.values(game.players)) {
+          player.locked = true;
+        }
+        beginResolution(game);
+        emitState(game.id);
+        scheduleFinalize(game);
+      } catch (error) {
+        logServerError("forceResolveIfExpired", error, { gameId: game.id });
+      }
+    }
+  };
+
+  io.on("connection", (socket: GameSocket) => {
+    socket.on("createGame", (payload = {}, callback) => {
+      try {
+        const { name, config, color } = payload || {};
+        const gameId = nanoid(6).toUpperCase();
+        const game = createGame({ id: gameId, config, seed: `stellcon-${gameId}` }) as ServerGame;
+        game.started = false;
+        store.games.set(gameId, game);
+
+        const playerId = nanoid(8);
+        addPlayer(game, { id: playerId, name: ensureUniqueName(game, name), color });
+
+        trackSession(store, socket.id, { gameId, playerId });
+        socket.join(`game:${gameId}`);
+
+        maybeStartGame(game);
+        emitState(gameId);
+        emitGamesList();
+
+        callback?.({ gameId, playerId });
+      } catch (error) {
+        callback?.({ error: error instanceof Error ? error.message : String(error) });
+      }
+    });
+
+    socket.on("joinGame", (payload = {}, callback) => {
+      try {
+        const { gameId, name, color } = payload || {};
+        const game = ensureGame(store, gameId) as ServerGame;
+        if (Object.keys(game.players).length >= game.config.maxPlayers) {
+          throw new Error("Game is full");
+        }
+        const playerId = nanoid(8);
+        addPlayer(game, { id: playerId, name: ensureUniqueName(game, name), color });
+
+        trackSession(store, socket.id, { gameId, playerId });
+        socket.join(`game:${gameId}`);
+
+        maybeStartGame(game);
+        emitState(gameId);
+        emitGamesList();
+
+        callback?.({ gameId, playerId });
+      } catch (error) {
+        callback?.({ error: error instanceof Error ? error.message : String(error) });
+      }
+    });
+
+    socket.on("listGames", (payload, callback) => {
+      const list = listPublicGames(store);
+      callback?.({ games: list });
+    });
+
+    socket.on("watchGame", (payload = {}, callback) => {
+      try {
+        const { gameId } = payload || {};
+        ensureGame(store, gameId);
+        trackSession(store, socket.id, { gameId, playerId: null });
+        socket.join(`game:${gameId}`);
+        emitState(gameId);
+        callback?.({ ok: true });
+      } catch (error) {
+        callback?.({ error: error instanceof Error ? error.message : String(error) });
+      }
+    });
+
+    socket.on("rejoinGame", (payload = {}, callback) => {
+      try {
+        const { gameId, playerId } = payload || {};
+        const game = ensureGame(store, gameId) as ServerGame;
+        const player = game.players[playerId];
+        if (!player) throw new Error("Player not found");
+
+        player.connected = true;
+        trackSession(store, socket.id, { gameId, playerId });
+        socket.join(`game:${gameId}`);
+
+        emitState(gameId);
+        callback?.({ gameId, playerId });
+      } catch (error) {
+        callback?.({ error: error instanceof Error ? error.message : String(error) });
+      }
+    });
+
+    socket.on("updateOrders", (payload = {}, callback) => {
+      try {
+        const { orders } = payload || {};
+        const session = getSession(store, socket.id);
+        if (!session) throw new Error("Not in game");
+        if (!session.playerId) throw new Error("Spectators cannot submit orders");
+        const game = ensureGame(store, session.gameId);
+        submitOrders(game, session.playerId, orders || {});
+        emitState(game.id);
+        callback?.({ ok: true });
+      } catch (error) {
+        callback?.({ error: error instanceof Error ? error.message : String(error) });
+      }
+    });
+
+    socket.on("lockIn", (payload, callback) => {
+      try {
+        const session = getSession(store, socket.id);
+        if (!session) throw new Error("Not in game");
+        if (!session.playerId) throw new Error("Spectators cannot lock in");
+        const game = ensureGame(store, session.gameId);
+        const allLocked = lockIn(game, session.playerId);
+        if (allLocked) {
+          beginResolution(game);
+          scheduleFinalize(game as ServerGame);
+        }
+        emitState(game.id);
+        callback?.({ ok: true });
+      } catch (error) {
+        callback?.({ error: error instanceof Error ? error.message : String(error) });
+      }
+    });
+
+    socket.on("requestAlliance", (payload = {}, callback) => {
+      try {
+        const { targetId } = payload || {};
+        const session = getSession(store, socket.id);
+        if (!session) throw new Error("Not in game");
+        if (!session.playerId) throw new Error("Spectators cannot request alliances");
+        const game = ensureGame(store, session.gameId);
+        const key = `${session.gameId}:${session.playerId}:${targetId}`;
+        store.pendingAlliances.set(key, true);
+
+        for (const [socketId, playerSession] of getSocketsForGame(store, game.id)) {
+          if (playerSession.playerId === targetId) {
+            io.to(socketId).emit("allianceRequest", { fromId: session.playerId });
+          }
+        }
+        callback?.({ ok: true });
+      } catch (error) {
+        callback?.({ error: error instanceof Error ? error.message : String(error) });
+      }
+    });
+
+    socket.on("acceptAlliance", (payload = {}, callback) => {
+      try {
+        const { fromId } = payload || {};
+        const session = getSession(store, socket.id);
+        if (!session) throw new Error("Not in game");
+        if (!session.playerId) throw new Error("Spectators cannot accept alliances");
+        const game = ensureGame(store, session.gameId);
+        const key = `${session.gameId}:${fromId}:${session.playerId}`;
+        if (store.pendingAlliances.has(key)) {
+          store.pendingAlliances.delete(key);
+          setAlliance(game, fromId, session.playerId);
+          emitState(game.id);
+        }
+        callback?.({ ok: true });
+      } catch (error) {
+        callback?.({ error: error instanceof Error ? error.message : String(error) });
+      }
+    });
+
+    socket.on("disconnect", () => {
+      const session = getSession(store, socket.id);
+      if (session) {
+        const game = getGame(store, session.gameId);
+        if (game && session.playerId && game.players[session.playerId]) {
+          game.players[session.playerId].connected = false;
+          emitState(game.id);
+        }
+      }
+      clearSession(store, socket.id);
+    });
+  });
+
+  return { forceResolveIfExpired };
+}

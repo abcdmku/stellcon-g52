@@ -2,10 +2,11 @@
   "name": "server",
   "version": "0.1.0",
   "type": "module",
-  "main": "src/index.js",
+  "main": "dist/index.js",
   "scripts": {
-    "dev": "node --watch src/index.js",
-    "start": "node src/index.js",
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
@@ -14,5 +15,8 @@
     "express": "^4.19.2",
     "nanoid": "^5.0.6",
     "socket.io": "^4.7.5"
+  },
+  "devDependencies": {
+    "tsx": "^4.20.2"
   }
 }
