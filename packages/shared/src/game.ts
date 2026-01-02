@@ -818,21 +818,35 @@ export function isAllied(game, playerId, otherId) {
 
 export function redactGameState(game, viewerId) {
   const reveal = game.phase === PHASES.resolving ? game.revealedMoves : undefined;
+  const players = Object.fromEntries(
+    Object.entries(game.players).map(([id, player]) => {
+      const orders = game.phase === PHASES.resolving || id === viewerId ? player.orders : blankOrders();
+      return [
+        id,
+        {
+          ...player,
+          orders,
+        },
+      ];
+    })
+  );
   return {
-    ...game,
+    id: game.id,
+    seed: game.seed,
+    config: game.config,
+    createdAt: game.createdAt,
+    turn: game.turn,
+    phase: game.phase,
+    turnEndsAt: game.turnEndsAt,
+    systems: game.systems,
+    links: game.links,
+    players,
+    log: game.log,
+    winnerId: game.winnerId,
     revealedMoves: reveal,
-    players: Object.fromEntries(
-      Object.entries(game.players).map(([id, player]) => {
-        const orders = game.phase === PHASES.resolving || id === viewerId ? player.orders : blankOrders();
-        return [
-          id,
-          {
-            ...player,
-            orders,
-          },
-        ];
-      })
-    ),
+    resolutionStartedAt: game.resolutionStartedAt,
+    resolutionEndsAt: game.resolutionEndsAt,
+    resolutionBattles: game.resolutionBattles,
   };
 }
 

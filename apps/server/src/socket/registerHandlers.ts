@@ -16,6 +16,7 @@ import type { ClientToServerEvents, ServerToClientEvents, GameState } from "@ste
 import {
   clearSession,
   ensureGame,
+  ensureGameRecord,
   getGame,
   getSession,
   getSocketsForGame,
@@ -27,8 +28,6 @@ import { logServerError } from "../logging.js";
 
 type IO = IOServer<ClientToServerEvents, ServerToClientEvents>;
 type GameSocket = Socket<ClientToServerEvents, ServerToClientEvents>;
-type ServerGame = GameState & { started?: boolean };
-
 const BASE_RESOLVE_DELAY_MS = 1600;
 
 function normalizePlayerName(value: string) {
@@ -63,7 +62,7 @@ export function registerSocketHandlers(io: IO, store: GameStore) {
     io.emit("gamesList", listPublicGames(store));
   };
 
-  const scheduleFinalize = (game: ServerGame) => {
+  const scheduleFinalize = (game: GameState) => {
     if (store.resolveTimers.has(game.id)) {
       clearTimeout(store.resolveTimers.get(game.id));
     }
@@ -99,10 +98,11 @@ export function registerSocketHandlers(io: IO, store: GameStore) {
     store.resolveTimers.set(game.id, timer);
   };
 
-  const maybeStartGame = (game: ServerGame) => {
+  const maybeStartGame = (game: GameState) => {
     const players = Object.keys(game.players).length;
-    if (!game.started && players >= game.config.maxPlayers) {
-      game.started = true;
+    const record = ensureGameRecord(store, game.id);
+    if (!record.started && players >= game.config.maxPlayers) {
+      record.started = true;
       startGame(game);
     }
   };
@@ -130,9 +130,9 @@ export function registerSocketHandlers(io: IO, store: GameStore) {
       try {
         const { name, config, color } = payload || {};
         const gameId = nanoid(6).toUpperCase();
-        const game = createGame({ id: gameId, config, seed: `stellcon-${gameId}` }) as ServerGame;
-        game.started = false;
+        const game = createGame({ id: gameId, config, seed: `stellcon-${gameId}` });
         store.games.set(gameId, game);
+        ensureGameRecord(store, gameId);
 
         const playerId = nanoid(8);
         addPlayer(game, { id: playerId, name: ensureUniqueName(game, name), color });
@@ -153,7 +153,7 @@ export function registerSocketHandlers(io: IO, store: GameStore) {
     socket.on("joinGame", (payload = {}, callback) => {
       try {
         const { gameId, name, color } = payload || {};
-        const game = ensureGame(store, gameId) as ServerGame;
+        const game = ensureGame(store, gameId);
         if (Object.keys(game.players).length >= game.config.maxPlayers) {
           throw new Error("Game is full");
         }
@@ -194,7 +194,7 @@ export function registerSocketHandlers(io: IO, store: GameStore) {
     socket.on("rejoinGame", (payload = {}, callback) => {
       try {
         const { gameId, playerId } = payload || {};
-        const game = ensureGame(store, gameId) as ServerGame;
+        const game = ensureGame(store, gameId);
         const player = game.players[playerId];
         if (!player) throw new Error("Player not found");
 
@@ -233,7 +233,7 @@ export function registerSocketHandlers(io: IO, store: GameStore) {
         const allLocked = lockIn(game, session.playerId);
         if (allLocked) {
           beginResolution(game);
-          scheduleFinalize(game as ServerGame);
+          scheduleFinalize(game);
         }
         emitState(game.id);
         callback?.({ ok: true });

@@ -8,8 +8,13 @@ export type Session = {
 
 export type ResolveTimer = ReturnType<typeof setTimeout>;
 
+export type GameRecord = {
+  started: boolean;
+};
+
 export type GameStore = {
   games: Map<string, GameState>;
+  records: Map<string, GameRecord>;
   sessions: Map<string, Session>;
   pendingAlliances: Map<string, boolean>;
   resolveTimers: Map<string, ResolveTimer>;
@@ -18,6 +23,7 @@ export type GameStore = {
 export function createGameStore(): GameStore {
   return {
     games: new Map(),
+    records: new Map(),
     sessions: new Map(),
     pendingAlliances: new Map(),
     resolveTimers: new Map(),
@@ -26,6 +32,18 @@ export function createGameStore(): GameStore {
 
 export function getGame(store: GameStore, gameId: string) {
   return store.games.get(gameId);
+}
+
+export function getGameRecord(store: GameStore, gameId: string) {
+  return store.records.get(gameId);
+}
+
+export function ensureGameRecord(store: GameStore, gameId: string) {
+  const existing = getGameRecord(store, gameId);
+  if (existing) return existing;
+  const record = { started: false };
+  store.records.set(gameId, record);
+  return record;
 }
 
 export function ensureGame(store: GameStore, gameId: string) {

@@ -127,7 +127,6 @@ export interface GameState {
   players: Record<string, PlayerState>;
   log: unknown[];
   winnerId: string | null;
-  started?: boolean;
   revealedMoves?: RevealedMove[];
   resolutionStartedAt?: number;
   resolutionEndsAt?: number;
