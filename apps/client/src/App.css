@@ -290,6 +290,7 @@
   left: 50%;
   top: 50%;
   transform-origin: center;
+  will-change: transform;
 }
 
 .board-links {
@@ -392,14 +393,16 @@
 
 .move-particle {
   position: absolute;
+  left: 0;
+  top: 0;
   width: 10px;
   height: 10px;
   border-radius: 50%;
-  transform: translate(-50%, -50%);
   box-shadow: 0 0 14px rgba(0, 0, 0, 0.6);
   mix-blend-mode: screen;
   pointer-events: none;
-  opacity: 0.85;
+  animation: move-particle var(--travel-duration, 800ms) linear var(--travel-delay, 0ms) both;
+  will-change: transform, opacity;
   z-index: 13;
 }
 
@@ -465,6 +468,20 @@
   }
   100% {
     stroke-dashoffset: -18;
+  }
+}
+
+@keyframes move-particle {
+  0% {
+    opacity: 0;
+    transform: translate(calc(var(--from-x) * 1px), calc(var(--from-y) * 1px)) translate(-50%, -50%);
+  }
+  15% {
+    opacity: 0.85;
+  }
+  100% {
+    opacity: 0;
+    transform: translate(calc(var(--to-x) * 1px), calc(var(--to-y) * 1px)) translate(-50%, -50%);
   }
 }
 

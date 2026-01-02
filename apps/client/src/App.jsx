@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { io } from "socket.io-client";
 import { MAP_SIZES, PLAYER_COLORS, POWERUPS, RESOURCE_COLORS, RESOURCE_TYPES, RESOLUTION_TRAVEL_MS } from "@stellcon/shared";
 import { demoPlayerId, demoState } from "./demoState.js";
@@ -30,7 +30,7 @@ const powerupHelp = {
   wormhole: "Place on any of your systems; lets you move from any of your systems to anywhere on the map.",
 };
 
-function FleetIcon({ size = 18 } = {}) {
+function FleetIcon({ size = 14 } = {}) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true" focusable="false">
       <path
@@ -468,7 +468,7 @@ function PlayerCard({ player, highlight }) {
   );
 }
 
-function Board({
+const Board = memo(function Board({
   systems,
   links,
   players,
@@ -494,6 +494,7 @@ function Board({
   const [scale, setScale] = useState(1);
   const [offset, setOffset] = useState({ x: 0, y: 0 });
   const boardRef = useRef(null);
+  const canvasRef = useRef(null);
   const cameraTouched = useRef(false);
   const cameraFitKey = useRef(null);
   const dragging = useRef(false);
@@ -501,6 +502,28 @@ function Board({
   const dragStart = useRef({ x: 0, y: 0 });
   const didDrag = useRef(false);
   const suppressNextClick = useRef(false);
+  const offsetRef = useRef(offset);
+  const scaleRef = useRef(scale);
+  const panRaf = useRef(0);
+  const pointerIdRef = useRef(null);
+
+  const applyCanvasTransform = useCallback(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const currentScale = scaleRef.current || 1;
+    const currentOffset = offsetRef.current || { x: 0, y: 0 };
+    canvas.style.transform = `translate(${currentOffset.x}px, ${currentOffset.y}px) scale(${currentScale})`;
+  }, []);
+
+  useLayoutEffect(() => {
+    offsetRef.current = offset;
+    applyCanvasTransform();
+  }, [applyCanvasTransform, offset]);
+
+  useLayoutEffect(() => {
+    scaleRef.current = scale;
+    applyCanvasTransform();
+  }, [applyCanvasTransform, scale]);
   const mapBoundsKey = useMemo(() => {
     if (!systems?.length) return "empty";
     let minQ = Number.POSITIVE_INFINITY;
@@ -869,17 +892,13 @@ function Board({
     plannedPathsRef.current = plannedMovePaths;
   }, [plannedMovePaths]);
 
-  const [nowMs, setNowMs] = useState(Date.now());
-  useEffect(() => {
-    if (!resolutionStartedAt || !resolutionEndsAt) return;
-    let raf = 0;
-    const tick = () => {
-      setNowMs(Date.now());
-      raf = requestAnimationFrame(tick);
-    };
-    raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
-  }, [resolutionStartedAt, resolutionEndsAt]);
+  const particleTiming = useMemo(() => {
+    if (!resolutionStartedAt || !resolutionEndsAt) return null;
+    const travelMs = Math.max(900, RESOLUTION_TRAVEL_MS);
+    const durationMs = Math.max(700, travelMs - 140);
+    const elapsedMs = Math.max(0, Date.now() - resolutionStartedAt);
+    return { durationMs, elapsedMs };
+  }, [resolutionEndsAt, resolutionStartedAt]);
 
   const particles = useMemo(() => {
     if (!resolutionStartedAt || !resolutionEndsAt) return [];
@@ -954,15 +973,12 @@ function Board({
 
   const [combatNow, setCombatNow] = useState(Date.now());
   useEffect(() => {
-    if (phase !== "resolving" || !resolutionStartedAt) return;
-    let raf = 0;
-    const tick = () => {
+    if (phase !== "resolving" || !resolutionStartedAt || !resolutionBattles?.length) return;
+    const interval = setInterval(() => {
       setCombatNow(Date.now());
-      raf = requestAnimationFrame(tick);
-    };
-    raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
-  }, [phase, resolutionStartedAt]);
+    }, 250);
+    return () => clearInterval(interval);
+  }, [phase, resolutionBattles, resolutionStartedAt]);
 
   const battleByTargetId = useMemo(() => {
     const map = new Map();
@@ -1026,17 +1042,31 @@ function Board({
     event.preventDefault();
     cameraTouched.current = true;
     const delta = event.deltaY > 0 ? -0.08 : 0.08;
-    setScale((prev) => Math.min(1.6, Math.max(0.35, prev + delta)));
+    const next = Math.min(1.6, Math.max(0.35, (scaleRef.current || 1) + delta));
+    if (next === scaleRef.current) return;
+    scaleRef.current = next;
+    setScale(next);
+    if (!panRaf.current) {
+      panRaf.current = requestAnimationFrame(() => {
+        panRaf.current = 0;
+        applyCanvasTransform();
+      });
+    }
   };
 
   const handlePointerDown = (event) => {
     if (event.target.closest) {
       if (event.target.closest("button")) return;
+      if (event.target.closest(".hex")) return;
     }
     cameraTouched.current = true;
     dragging.current = true;
     didDrag.current = false;
     suppressNextClick.current = false;
+    pointerIdRef.current = event.pointerId;
+    if (event.currentTarget.setPointerCapture && typeof event.pointerId === "number") {
+      event.currentTarget.setPointerCapture(event.pointerId);
+    }
     lastPos.current = { x: event.clientX, y: event.clientY };
     dragStart.current = { x: event.clientX, y: event.clientY };
   };
@@ -1045,7 +1075,13 @@ function Board({
     if (dragging.current) {
       const dx = event.clientX - lastPos.current.x;
       const dy = event.clientY - lastPos.current.y;
-      setOffset((prev) => ({ x: prev.x + dx, y: prev.y + dy }));
+      offsetRef.current = { x: offsetRef.current.x + dx, y: offsetRef.current.y + dy };
+      if (!panRaf.current) {
+        panRaf.current = requestAnimationFrame(() => {
+          panRaf.current = 0;
+          applyCanvasTransform();
+        });
+      }
       lastPos.current = { x: event.clientX, y: event.clientY };
       const totalDx = event.clientX - dragStart.current.x;
       const totalDy = event.clientY - dragStart.current.y;
@@ -1087,8 +1123,24 @@ function Board({
   const handlePointerUp = (event) => {
     dragging.current = false;
     if (didDrag.current) suppressNextClick.current = true;
-    if (event?.target?.closest && event.target.closest(".planned-move-controls")) return;
-    setHoveredMoveIndex(null);
+    const isPlannedMoveControl = Boolean(event?.target?.closest && event.target.closest(".planned-move-controls"));
+    if (panRaf.current) {
+      cancelAnimationFrame(panRaf.current);
+      panRaf.current = 0;
+    }
+    if (offsetRef.current.x !== offset.x || offsetRef.current.y !== offset.y) {
+      setOffset(offsetRef.current);
+    }
+    const pointerId = pointerIdRef.current;
+    pointerIdRef.current = null;
+    if (event.currentTarget.releasePointerCapture && typeof pointerId === "number") {
+      try {
+        event.currentTarget.releasePointerCapture(pointerId);
+      } catch {
+        // ignore
+      }
+    }
+    if (!isPlannedMoveControl) setHoveredMoveIndex(null);
   };
 
   return (
@@ -1101,7 +1153,7 @@ function Board({
       onPointerUp={handlePointerUp}
       onPointerLeave={handlePointerUp}
     >
-      <div className="board-canvas" style={{ transform: `translate(${offset.x}px, ${offset.y}px) scale(${scale})` }}>
+      <div className="board-canvas" ref={canvasRef}>
         <svg className="board-links" viewBox="-3000 -2200 6000 4400">
           {laneEdges.map((edge) => {
             const from = positions[edge.fromId];
@@ -1225,22 +1277,21 @@ function Board({
             })()}
           </div>
         ) : null}
-        {resolutionStartedAt && resolutionEndsAt
+        {particleTiming
           ? particles.map((particle) => {
-              const travelMs = Math.max(900, RESOLUTION_TRAVEL_MS);
-              const duration = Math.max(700, travelMs - 140);
-              const delay = (particle.index % 4) * 30;
-              const t = Math.max(0, Math.min(1, (nowMs - resolutionStartedAt - delay) / duration));
-              if (t <= 0 || t >= 1) return null;
-              const x = particle.from.x + (particle.to.x - particle.from.x) * t;
-              const y = particle.from.y + (particle.to.y - particle.from.y) * t;
+              const delayMs = (particle.index % 4) * 30;
+              const animationDelayMs = delayMs - particleTiming.elapsedMs;
               return (
                 <div
-                  key={particle.key || `p-${particle.index}`}
+                  key={`${particle.key || `p-${particle.index}`}-${resolutionStartedAt || 0}`}
                   className="move-particle"
                   style={{
-                    left: `${x}px`,
-                    top: `${y}px`,
+                    "--from-x": particle.from.x,
+                    "--from-y": particle.from.y,
+                    "--to-x": particle.to.x,
+                    "--to-y": particle.to.y,
+                    "--travel-duration": `${particleTiming.durationMs}ms`,
+                    "--travel-delay": `${animationDelayMs}ms`,
                     background: particle.color,
                     width: `${particle.size || 10}px`,
                     height: `${particle.size || 10}px`,
@@ -1594,7 +1645,7 @@ function Board({
       </div>
     </div>
   );
-}
+});
 
 function App() {
   const [socket, setSocket] = useState(null);
@@ -1661,6 +1712,12 @@ function App() {
     if (!placementMode) return;
     if (state?.phase !== "planning" || fleetsRemaining <= 0) setPlacementMode(false);
   }, [fleetsRemaining, placementMode, state?.phase]);
+
+  useEffect(() => {
+    if (state?.phase === "planning") return;
+    setMoveOriginId(null);
+    setPowerupDraft("");
+  }, [state?.phase]);
 
   useEffect(() => {
     if (!powerupDraft) return;
@@ -1952,7 +2009,11 @@ function App() {
       return;
     }
 
-    const preferDestination = Boolean(event?.shiftKey);
+    if (!playerId) return;
+    if (state?.phase !== "planning") return;
+
+    const isTransferClick = Boolean(event?.shiftKey);
+    const wormholeActive = (me?.wormholeTurns || 0) > 0;
     const canMoveWithinOwned = (fromId, toId) => {
       if (!fromId || !toId) return false;
       if (fromId === toId) return true;
@@ -1976,18 +2037,71 @@ function App() {
       return false;
     };
 
-    if (system.ownerId === playerId && (!moveOriginId || !preferDestination)) {
-      setMoveOriginId(system.id);
+    const isOwnedByMe = system.ownerId === playerId;
+
+    if (isOwnedByMe) {
+      if (isTransferClick && moveOriginId && moveOriginId !== system.id) {
+        const canReach = wormholeActive || canMoveWithinOwned(moveOriginId, system.id);
+        if (!canReach) {
+          flashNotice("Not reachable (need Wormhole or a connected path through your systems).");
+          return;
+        }
+
+        setOrders((current) => {
+          const moves = [...current.moves];
+          const origin = systems.find((entry) => entry.id === moveOriginId);
+          if (!origin || origin.ownerId !== playerId) return current;
+
+          const placement = Number(current.placements?.[moveOriginId] || 0);
+          const originFleets = (origin.fleets || 0) + placement;
+          const queued = moves.reduce(
+            (sum, move) => (move.fromId === moveOriginId ? sum + Number(move.count || 0) : sum),
+            0
+          );
+          const available = Math.max(0, originFleets - queued);
+          if (available <= 0) {
+            flashNotice("No fleets left at that origin.");
+            return current;
+          }
+
+          const existingIndex = moves.findIndex((move) => move.fromId === moveOriginId && move.toId === system.id);
+          if (existingIndex !== -1) {
+            const existing = moves[existingIndex];
+            moves[existingIndex] = { ...existing, count: Number(existing.count || 0) + 1 };
+            return { ...current, moves };
+          }
+
+          moves.push({ fromId: moveOriginId, toId: system.id, count: 1 });
+          return { ...current, moves };
+        });
+        return;
+      }
+
+      setMoveOriginId((current) => (current === system.id ? null : system.id));
       return;
     }
 
-    if (!moveOriginId || moveOriginId === system.id) return;
+    if (!moveOriginId) {
+      flashNotice("Select one of your systems first (origin), then click a target.");
+      return;
+    }
 
-    const wormholeActive = (me?.wormholeTurns || 0) > 0;
-    const isFriendlyTransfer = system.ownerId === playerId;
+    if (system.ownerId && isAlliedWith(system.ownerId)) {
+      flashNotice("Cannot move fleets into allied territory.");
+      return;
+    }
+
+    if (system.ownerId && system.defenseNetTurns > 0) {
+      flashNotice("Blocked by Defense Net.");
+      return;
+    }
+
     const isNeighbor = links?.[moveOriginId]?.includes(system.id);
-    const canReach = isFriendlyTransfer ? wormholeActive || canMoveWithinOwned(moveOriginId, system.id) : wormholeActive || isNeighbor;
-    if (!canReach) return;
+    const canReach = wormholeActive || isNeighbor;
+    if (!canReach) {
+      flashNotice("Target not reachable (need Wormhole or a direct lane).");
+      return;
+    }
 
     setOrders((current) => {
       const moves = [...current.moves];
@@ -1997,19 +2111,20 @@ function App() {
       const placement = Number(current.placements?.[moveOriginId] || 0);
       const originFleets = (origin.fleets || 0) + placement;
       const queued = moves.reduce((sum, move) => (move.fromId === moveOriginId ? sum + Number(move.count || 0) : sum), 0);
-      const existingIndex = moves.findIndex((move) => move.fromId === moveOriginId && move.toId === system.id);
       const available = Math.max(0, originFleets - queued);
+      if (available <= 0) {
+        flashNotice("No fleets left at that origin.");
+        return current;
+      }
 
+      const existingIndex = moves.findIndex((move) => move.fromId === moveOriginId && move.toId === system.id);
       if (existingIndex !== -1) {
-        if (available <= 0) return current;
         const existing = moves[existingIndex];
         moves[existingIndex] = { ...existing, count: Number(existing.count || 0) + 1 };
         return { ...current, moves };
       }
 
-      if (available <= 0) return current;
-      const initial = Math.max(1, Math.floor(available / 2));
-      moves.push({ fromId: moveOriginId, toId: system.id, count: initial });
+      moves.push({ fromId: moveOriginId, toId: system.id, count: 1 });
       return { ...current, moves };
     });
   };
@@ -2234,6 +2349,52 @@ function App() {
               <div className="system-fleets">{selected.fleets}</div>
             </div>
           ) : null}
+
+          <div className="panel-subtitle">Moves</div>
+          {playerId && state.phase === "planning" ? (
+            <>
+              <div className="move-origin">
+                <div className="move-origin-row">
+                  <span>
+                    Origin: {moveOriginId || "None"}
+                    {moveOriginId ? ` (${originAvailable} available)` : ""}
+                  </span>
+                  <button type="button" onClick={handleClearOrigin} disabled={!moveOriginId}>
+                    Clear
+                  </button>
+                </div>
+                <div className="muted">Click a target to send 1 fleet. Shift-click your system to transfer from the current origin.</div>
+              </div>
+
+              <div className="order-list" aria-label="Planned moves">
+                {(orders.moves || []).length ? (
+                  (orders.moves || []).map((move, index) => (
+                    <div key={`move-${move.fromId}-${move.toId}-${index}`} className="order-item">
+                      <span>
+                        {move.fromId} → {move.toId}
+                      </span>
+                      <span className="order-controls">
+                        <button type="button" onClick={() => handleAdjustMove(index, -1)} aria-label="Decrease move">
+                          -
+                        </button>
+                        <span>{Number(move.count) || 0}</span>
+                        <button type="button" onClick={() => handleAdjustMove(index, 1)} aria-label="Increase move">
+                          +
+                        </button>
+                        <button type="button" onClick={() => handleRemoveMove(index)} aria-label="Remove move">
+                          x
+                        </button>
+                      </span>
+                    </div>
+                  ))
+                ) : (
+                  <div className="muted">No moves queued yet.</div>
+                )}
+              </div>
+            </>
+          ) : (
+            <div className="muted">Moves can be planned during the Planning phase.</div>
+          )}
 
           <div className="panel-subtitle">Powerups</div>
           <div className="powerup-grid">
