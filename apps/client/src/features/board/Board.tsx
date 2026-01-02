@@ -1,0 +1,1194 @@
+import { memo, useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { RESOLUTION_TRAVEL_MS, RESOURCE_COLORS, RESOURCE_TYPES } from "@stellcon/shared";
+import { hexToRgba } from "../../shared/lib/color";
+import { axialDistanceCoords, axialToPixel, trimLineToHexEdges } from "../../shared/lib/hex";
+
+const HEX_SIZE = 56;
+const resourceLabels = {
+  fusion: "Fusion",
+  terrain: "Terrain",
+  metal: "Metal",
+  crystal: "Crystal",
+};
+
+const Board = memo(function Board({
+  systems,
+  links,
+  players,
+  orders,
+  revealedMoves,
+  resolutionStartedAt,
+  resolutionEndsAt,
+  resolutionBattles,
+  phase,
+  viewerId,
+  wormholeTurns,
+  powerupDraft,
+  powerupTargetIds,
+  powerupHighlightColor,
+  placementMode,
+  fleetsRemaining,
+  selectedId,
+  moveOriginId,
+  onSystemClick,
+  onMoveAdjust,
+  onMoveCancel,
+}) {
+  const [scale, setScale] = useState(1);
+  const [offset, setOffset] = useState({ x: 0, y: 0 });
+  const boardRef = useRef(null);
+  const canvasRef = useRef(null);
+  const cameraTouched = useRef(false);
+  const cameraFitKey = useRef(null);
+  const dragging = useRef(false);
+  const lastPos = useRef({ x: 0, y: 0 });
+  const dragStart = useRef({ x: 0, y: 0 });
+  const didDrag = useRef(false);
+  const suppressNextClick = useRef(false);
+  const offsetRef = useRef(offset);
+  const scaleRef = useRef(scale);
+  const panRaf = useRef(0);
+  const pointerIdRef = useRef(null);
+
+  const applyCanvasTransform = useCallback(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const currentScale = scaleRef.current || 1;
+    const currentOffset = offsetRef.current || { x: 0, y: 0 };
+    canvas.style.transform = `translate(${currentOffset.x}px, ${currentOffset.y}px) scale(${currentScale})`;
+  }, []);
+
+  useLayoutEffect(() => {
+    offsetRef.current = offset;
+    applyCanvasTransform();
+  }, [applyCanvasTransform, offset]);
+
+  useLayoutEffect(() => {
+    scaleRef.current = scale;
+    applyCanvasTransform();
+  }, [applyCanvasTransform, scale]);
+  const mapBoundsKey = useMemo(() => {
+    if (!systems?.length) return "empty";
+    let minQ = Number.POSITIVE_INFINITY;
+    let maxQ = Number.NEGATIVE_INFINITY;
+    let minR = Number.POSITIVE_INFINITY;
+    let maxR = Number.NEGATIVE_INFINITY;
+    for (const system of systems) {
+      minQ = Math.min(minQ, system.q);
+      maxQ = Math.max(maxQ, system.q);
+      minR = Math.min(minR, system.r);
+      maxR = Math.max(maxR, system.r);
+    }
+    return `${systems.length}:${minQ},${maxQ}:${minR},${maxR}`;
+  }, [systems]);
+  const neighborIds = useMemo(() => {
+    if (!moveOriginId || !viewerId) return new Set();
+    const systemMap = new Map(systems.map((system) => [system.id, system]));
+    const origin = systemMap.get(moveOriginId);
+    if (!origin || origin.ownerId !== viewerId) return new Set();
+
+    const reachable = new Set();
+    if (wormholeTurns > 0) {
+      for (const system of systems) {
+        if (system.id !== moveOriginId) reachable.add(system.id);
+      }
+    } else {
+      const visited = new Set([moveOriginId]);
+      const queue = [moveOriginId];
+      while (queue.length) {
+        const current = queue.shift();
+        for (const nextId of links?.[current] || []) {
+          if (visited.has(nextId)) continue;
+          const next = systemMap.get(nextId);
+          if (!next) continue;
+          if (next.ownerId !== viewerId) continue;
+          visited.add(nextId);
+          if (nextId !== moveOriginId) reachable.add(nextId);
+          queue.push(nextId);
+        }
+      }
+    }
+
+    for (const nextId of links?.[moveOriginId] || []) reachable.add(nextId);
+    return reachable;
+  }, [links, moveOriginId, systems, viewerId, wormholeTurns]);
+
+  const positions = useMemo(() => {
+    const entries = {};
+    for (const system of systems) {
+      entries[system.id] = axialToPixel(system.q, system.r, HEX_SIZE);
+    }
+    return entries;
+  }, [systems]);
+
+  const systemById = useMemo(() => {
+    const entries = {};
+    for (const system of systems) entries[system.id] = system;
+    return entries;
+  }, [systems]);
+
+  const systemsForBounds = useMemo(() => systems, [mapBoundsKey]);
+  const mapPixelBounds = useMemo(() => {
+    if (!systemsForBounds?.length) return null;
+
+    let minX = Number.POSITIVE_INFINITY;
+    let maxX = Number.NEGATIVE_INFINITY;
+    let minY = Number.POSITIVE_INFINITY;
+    let maxY = Number.NEGATIVE_INFINITY;
+
+    for (const system of systemsForBounds) {
+      const { x, y } = axialToPixel(system.q, system.r, HEX_SIZE);
+      minX = Math.min(minX, x);
+      maxX = Math.max(maxX, x);
+      minY = Math.min(minY, y);
+      maxY = Math.max(maxY, y);
+    }
+
+    return { minX, maxX, minY, maxY };
+  }, [systemsForBounds]);
+
+  const fitCameraToMap = useCallback(() => {
+    const boardEl = boardRef.current;
+    if (!boardEl || !mapPixelBounds) return;
+
+    const isNewMap = cameraFitKey.current !== mapBoundsKey;
+    if (!isNewMap && cameraTouched.current) return;
+
+    const rect = boardEl.getBoundingClientRect();
+    if (!rect.width || !rect.height) return;
+
+    const { minX, maxX, minY, maxY } = mapPixelBounds;
+
+    const padX = HEX_SIZE;
+    const padY = (HEX_SIZE * Math.sqrt(3)) / 2;
+    const contentWidth = Math.max(1, maxX - minX + padX * 2);
+    const contentHeight = Math.max(1, maxY - minY + padY * 2);
+
+    const margin = 40;
+    const rootStyles = getComputedStyle(document.documentElement);
+    const overlayGap = Number.parseFloat(rootStyles.getPropertyValue("--board-safe-gap")) || 16;
+    let safeLeft = margin;
+    let safeTop = margin;
+    let safeRight = rect.width - margin;
+    let safeBottom = rect.height - margin;
+
+    const leftHud = document.querySelector(".overlay-section.left");
+    const rightHud = document.querySelector(".overlay-section.right");
+    const topHud = document.querySelector(".overlay-top");
+    const bottomHud = document.querySelector(".overlay-bottom");
+
+    if (leftHud) {
+      const r = leftHud.getBoundingClientRect();
+      safeLeft = Math.max(safeLeft, r.right - rect.left + overlayGap);
+    }
+    if (rightHud) {
+      const r = rightHud.getBoundingClientRect();
+      safeRight = Math.min(safeRight, r.left - rect.left - overlayGap);
+    }
+    if (topHud) {
+      const r = topHud.getBoundingClientRect();
+      safeTop = Math.max(safeTop, r.bottom - rect.top + overlayGap);
+    }
+    if (bottomHud) {
+      const r = bottomHud.getBoundingClientRect();
+      safeBottom = Math.min(safeBottom, r.top - rect.top - overlayGap);
+    }
+
+    const availableWidth = Math.max(1, safeRight - safeLeft);
+    const availableHeight = Math.max(1, safeBottom - safeTop);
+
+    const nextScale = clamp(Math.min(availableWidth / contentWidth, availableHeight / contentHeight), 0.35, 1.15);
+    const centerX = (minX + maxX) / 2;
+    const centerY = (minY + maxY) / 2;
+
+    const boardCenterX = rect.width / 2;
+    const boardCenterY = rect.height / 2;
+    const safeCenterX = safeLeft + availableWidth / 2;
+    const safeCenterY = safeTop + availableHeight / 2;
+    const deltaX = safeCenterX - boardCenterX;
+    const deltaY = safeCenterY - boardCenterY;
+
+    const nextOffset = { x: deltaX - centerX * nextScale, y: deltaY - centerY * nextScale };
+
+    setScale((prev) => (Object.is(prev, nextScale) ? prev : nextScale));
+    setOffset((prev) => (prev.x === nextOffset.x && prev.y === nextOffset.y ? prev : nextOffset));
+
+    cameraTouched.current = false;
+    cameraFitKey.current = mapBoundsKey;
+  }, [mapBoundsKey, mapPixelBounds]);
+
+  useEffect(() => {
+    fitCameraToMap();
+  }, [fitCameraToMap]);
+
+  useEffect(() => {
+    const handleResize = () => fitCameraToMap();
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, [fitCameraToMap]);
+
+  const laneEdges = useMemo(() => {
+    const lanes = [];
+    const seen = new Set();
+    for (const [fromId, neighbors] of Object.entries(links || {})) {
+      for (const toId of neighbors) {
+        const key = [fromId, toId].sort().join("-");
+        if (seen.has(key)) continue;
+        seen.add(key);
+        const from = systemById[fromId];
+        const to = systemById[toId];
+        if (!from || !to) continue;
+        if (axialDistanceCoords(from, to) <= 1) continue;
+        lanes.push({ fromId, toId });
+      }
+    }
+    return lanes;
+  }, [links, systemById]);
+
+  const moveLines = useMemo(() => {
+    const plannedMoves = orders?.moves || [];
+    const showRevealedMoves = phase === "resolving" && revealedMoves && revealedMoves.length > 0;
+    if (!showRevealedMoves) {
+      return plannedMoves
+        .map((move, index) => ({
+          key: `me-${index}-${move.fromId}-${move.toId}`,
+          index,
+          playerId: null,
+          fromId: move.fromId,
+          toId: move.toId,
+          count: Number(move.count) || 0,
+          from: positions[move.fromId],
+          to: positions[move.toId],
+        }))
+        .filter((entry) => entry.from && entry.to);
+    }
+
+    const passthrough = [];
+    const attackGroups = new Map();
+
+    for (const [moveIndex, move] of revealedMoves.entries()) {
+      const from = positions[move.fromId];
+      const to = positions[move.toId];
+      if (!from || !to) continue;
+      const playerId = move.playerId || null;
+      if (!playerId) continue;
+      const count = Number(move.count) || 0;
+      if (count <= 0) continue;
+
+      const targetOwnerId = systemById[move.toId]?.ownerId || null;
+      const isAttack = targetOwnerId !== playerId;
+      if (!isAttack) {
+        passthrough.push({
+          key: `${playerId}-${move.fromId}-${move.toId}-${count}-${moveIndex}`,
+          index: null,
+          playerId,
+          fromId: move.fromId,
+          toId: move.toId,
+          count,
+          from,
+          to,
+        });
+        continue;
+      }
+
+      const key = `${playerId}:${move.toId}`;
+      if (!attackGroups.has(key)) {
+        attackGroups.set(key, {
+          playerId,
+          toId: move.toId,
+          totalFleets: 0,
+          weight: 0,
+          sumX: 0,
+          sumY: 0,
+        });
+      }
+      const group = attackGroups.get(key);
+      group.totalFleets += count;
+      group.weight += count;
+      group.sumX += from.x * count;
+      group.sumY += from.y * count;
+    }
+
+    const aggregated = [];
+    for (const group of attackGroups.values()) {
+      const to = positions[group.toId];
+      if (!to || group.totalFleets <= 0 || group.weight <= 0) continue;
+      const from = { x: group.sumX / group.weight, y: group.sumY / group.weight };
+      const fromId = `agg:${group.playerId}:${group.toId}`;
+      aggregated.push({
+        key: `${group.playerId}-${fromId}-${group.toId}-${group.totalFleets}`,
+        index: null,
+        playerId: group.playerId,
+        fromId,
+        toId: group.toId,
+        count: group.totalFleets,
+        from,
+        to,
+      });
+    }
+
+    return [...passthrough, ...aggregated];
+  }, [orders, phase, positions, revealedMoves, systemById]);
+
+  const movePaths = useMemo(() => {
+    const groups = new Map();
+    for (const entry of moveLines) {
+      const fromKey = `${entry.playerId || "me"}:${entry.fromId}`;
+      if (!groups.has(fromKey)) groups.set(fromKey, []);
+      groups.get(fromKey).push(entry);
+    }
+
+    const result = [];
+    for (const entries of groups.values()) {
+      const sorted = entries
+        .slice()
+        .sort(
+          (a, b) =>
+            Math.atan2(a.to.y - a.from.y, a.to.x - a.from.x) - Math.atan2(b.to.y - b.from.y, b.to.x - b.from.x)
+        );
+      const n = sorted.length;
+      for (let i = 0; i < n; i += 1) {
+        const entry = sorted[i];
+        const trimmed = trimLineToHexEdges(entry.from, entry.to, { size: HEX_SIZE, pad: 2 });
+        const isAggregateFrom = entry.fromId?.startsWith?.("agg:");
+        const fromX = isAggregateFrom ? entry.from.x : trimmed.x1;
+        const fromY = isAggregateFrom ? entry.from.y : trimmed.y1;
+        const toX = trimmed.x2;
+        const toY = trimmed.y2;
+        const dx = toX - fromX;
+        const dy = toY - fromY;
+        const len = Math.hypot(dx, dy) || 1;
+        const lane = i - (n - 1) / 2;
+        const laneOffset = lane * 14;
+        const mx = fromX + dx * 0.5;
+        const my = fromY + dy * 0.5;
+        const arch = Math.min(110, Math.max(40, len * 0.28));
+        const cx = mx + laneOffset * 1.6;
+        const cy = my - (arch + Math.abs(laneOffset) * 0.55);
+        const badgeX = 0.25 * fromX + 0.5 * cx + 0.25 * toX;
+        const badgeY = 0.25 * fromY + 0.5 * cy + 0.25 * toY;
+        const angleDeg = (Math.atan2(dy, dx) * 180) / Math.PI;
+        const d = `M ${fromX} ${fromY} Q ${cx} ${cy} ${toX} ${toY}`;
+        result.push({ ...entry, d, labelX: badgeX, labelY: badgeY, angleDeg, cx, cy });
+      }
+    }
+
+    return result;
+  }, [moveLines]);
+
+  const plannedMoves = useMemo(() => {
+    if (phase !== "planning") return [];
+    return (orders?.moves || [])
+      .map((move, index) => ({
+        index,
+        fromId: move.fromId,
+        toId: move.toId,
+        count: Number(move.count) || 0,
+        from: positions[move.fromId],
+        to: positions[move.toId],
+      }))
+      .filter((entry) => entry.from && entry.to);
+  }, [orders, phase, positions]);
+
+  const plannedMovePaths = useMemo(() => {
+    const groups = new Map();
+    for (const entry of plannedMoves) {
+      if (!groups.has(entry.fromId)) groups.set(entry.fromId, []);
+      groups.get(entry.fromId).push(entry);
+    }
+    const result = [];
+    for (const entries of groups.values()) {
+      const sorted = entries
+        .slice()
+        .sort(
+          (a, b) =>
+            Math.atan2(a.to.y - a.from.y, a.to.x - a.from.x) - Math.atan2(b.to.y - b.from.y, b.to.x - b.from.x)
+        );
+      const n = sorted.length;
+      for (let i = 0; i < n; i += 1) {
+        const entry = sorted[i];
+        const trimmed = trimLineToHexEdges(entry.from, entry.to, { size: HEX_SIZE, pad: 2 });
+        const from = { x: trimmed.x1, y: trimmed.y1 };
+        const to = { x: trimmed.x2, y: trimmed.y2 };
+        const dx = to.x - from.x;
+        const dy = to.y - from.y;
+        const len = Math.hypot(dx, dy) || 1;
+        const lane = i - (n - 1) / 2;
+        const laneOffset = lane * 14;
+        const mx = from.x + dx * 0.5;
+        const my = from.y + dy * 0.5;
+        const arch = Math.min(110, Math.max(40, len * 0.28));
+        const cx = mx + laneOffset * 1.6;
+        const cy = my - (arch + Math.abs(laneOffset) * 0.55);
+        const labelX = 0.25 * from.x + 0.5 * cx + 0.25 * to.x;
+        const labelY = 0.25 * from.y + 0.5 * cy + 0.25 * to.y;
+        const d = `M ${from.x} ${from.y} Q ${cx} ${cy} ${to.x} ${to.y}`;
+        result.push({ ...entry, from, to, cx, cy, d, labelX, labelY, dx, dy, len });
+      }
+    }
+    return result;
+  }, [plannedMoves]);
+
+  const [hoveredMoveIndex, setHoveredMoveIndex] = useState(null);
+  const plannedPathsRef = useRef(plannedMovePaths);
+  useEffect(() => {
+    plannedPathsRef.current = plannedMovePaths;
+  }, [plannedMovePaths]);
+
+  const particleTiming = useMemo(() => {
+    if (!resolutionStartedAt || !resolutionEndsAt) return null;
+    const travelMs = Math.max(900, RESOLUTION_TRAVEL_MS);
+    const durationMs = Math.max(700, travelMs - 140);
+    const elapsedMs = Math.max(0, Date.now() - resolutionStartedAt);
+    return { durationMs, elapsedMs };
+  }, [resolutionEndsAt, resolutionStartedAt]);
+
+  const particles = useMemo(() => {
+    if (!resolutionStartedAt || !resolutionEndsAt) return [];
+    if (!revealedMoves || revealedMoves.length === 0) return [];
+
+    const transfers = [];
+    const attackGroups = new Map();
+    for (const [moveIndex, move] of revealedMoves.entries()) {
+      const from = positions[move.fromId];
+      const to = positions[move.toId];
+      if (!from || !to) continue;
+      const playerId = move.playerId || null;
+      if (!playerId) continue;
+      const count = Number(move.count) || 0;
+      if (count <= 0) continue;
+
+      const targetOwnerId = systemById[move.toId]?.ownerId || null;
+      const isAttack = targetOwnerId !== playerId;
+      if (!isAttack) {
+        const color = players?.[playerId]?.color || "#ffffff";
+        const size = Math.min(18, 8 + Math.sqrt(count) * 1.6);
+        transfers.push({ key: `t-${playerId}-${move.fromId}-${move.toId}-${moveIndex}`, from, to, color, size });
+        continue;
+      }
+
+      const key = `${playerId}:${move.toId}`;
+      if (!attackGroups.has(key)) {
+        attackGroups.set(key, {
+          playerId,
+          toId: move.toId,
+          totalFleets: 0,
+          weight: 0,
+          sumX: 0,
+          sumY: 0,
+        });
+      }
+      const group = attackGroups.get(key);
+      group.totalFleets += count;
+      group.weight += count;
+      group.sumX += from.x * count;
+      group.sumY += from.y * count;
+    }
+
+    const result = [];
+    let index = 0;
+    for (const entry of transfers) {
+      result.push({ index, ...entry });
+      index += 1;
+    }
+    for (const group of attackGroups.values()) {
+      const to = positions[group.toId];
+      if (!to || group.totalFleets <= 0 || group.weight <= 0) continue;
+      const from = { x: group.sumX / group.weight, y: group.sumY / group.weight };
+      const color = players?.[group.playerId]?.color || "#ffffff";
+      const size = Math.min(22, 8 + Math.sqrt(group.totalFleets) * 2);
+      result.push({ key: `a-${group.playerId}-${group.toId}`, index, from, to, color, size });
+      index += 1;
+    }
+    return result;
+  }, [players, positions, resolutionEndsAt, resolutionStartedAt, revealedMoves, systemById]);
+
+  const outgoingByFromId = useMemo(() => {
+    const map = new Map();
+    for (const move of revealedMoves || []) {
+      const fromId = move.fromId;
+      const count = Number(move.count) || 0;
+      if (!fromId || count <= 0) continue;
+      map.set(fromId, (map.get(fromId) || 0) + count);
+    }
+    return map;
+  }, [revealedMoves]);
+
+  const [combatNow, setCombatNow] = useState(Date.now());
+  useEffect(() => {
+    if (phase !== "resolving" || !resolutionStartedAt || !resolutionBattles?.length) return;
+    const interval = setInterval(() => {
+      setCombatNow(Date.now());
+    }, 250);
+    return () => clearInterval(interval);
+  }, [phase, resolutionBattles, resolutionStartedAt]);
+
+  const battleByTargetId = useMemo(() => {
+    const map = new Map();
+    for (const battle of resolutionBattles || []) {
+      map.set(battle.targetId, battle);
+    }
+    return map;
+  }, [resolutionBattles]);
+
+  const battleStateByTargetId = useMemo(() => {
+    if (phase !== "resolving") return new Map();
+    if (!resolutionStartedAt || !resolutionBattles?.length) return new Map();
+    const elapsed = combatNow - resolutionStartedAt;
+    const map = new Map();
+    for (const battle of resolutionBattles) {
+      const battleElapsed = elapsed - battle.startOffsetMs;
+      if (battleElapsed < 0 || battleElapsed >= battle.durationMs) continue;
+
+      const skirmishRounds = battle.attackerSkirmishRounds || [];
+      const combatRounds = battle.rounds || [];
+      const skirmishMs = skirmishRounds.length * 1000;
+
+      if (battleElapsed < skirmishMs && skirmishRounds.length) {
+        const index = Math.min(skirmishRounds.length - 1, Math.floor(battleElapsed / 1000));
+        const snapshot = skirmishRounds[index];
+        const leader = snapshot.reduce((best, entry) => (!best || entry.fleets > best.fleets ? entry : best), null);
+        map.set(battle.targetId, { mode: "skirmish", attackers: snapshot, attackerLeader: leader });
+        continue;
+      }
+
+      if (combatRounds.length) {
+        const index = Math.min(combatRounds.length - 1, Math.floor((battleElapsed - skirmishMs) / 1000));
+        const snapshot = combatRounds[index];
+        map.set(battle.targetId, { mode: "combat", attacker: snapshot.attacker, defender: snapshot.defender });
+        continue;
+      }
+    }
+    return map;
+  }, [combatNow, phase, resolutionBattles, resolutionStartedAt]);
+
+  const battleFxByTargetId = useMemo(() => {
+    if (phase !== "resolving") return new Map();
+    if (!resolutionStartedAt || !resolutionBattles?.length) return new Map();
+    const elapsed = combatNow - resolutionStartedAt;
+    const map = new Map();
+    for (const battle of resolutionBattles) {
+      const battleElapsed = elapsed - battle.startOffsetMs;
+      if (battleElapsed < 0) continue;
+      const tick = Math.max(0, Math.floor(battleElapsed / 1000));
+      const victoryElapsed = battleElapsed - battle.durationMs;
+      map.set(battle.targetId, { battleElapsed, tick, victoryElapsed });
+    }
+    return map;
+  }, [combatNow, phase, resolutionBattles, resolutionStartedAt]);
+
+  const activeBattle = null;
+  const activeBattleState = null;
+  const activeBattleFx = null;
+
+  const handleWheel = (event) => {
+    event.preventDefault();
+    cameraTouched.current = true;
+    const delta = event.deltaY > 0 ? -0.08 : 0.08;
+    const next = Math.min(1.6, Math.max(0.35, (scaleRef.current || 1) + delta));
+    if (next === scaleRef.current) return;
+    scaleRef.current = next;
+    setScale(next);
+    if (!panRaf.current) {
+      panRaf.current = requestAnimationFrame(() => {
+        panRaf.current = 0;
+        applyCanvasTransform();
+      });
+    }
+  };
+
+  const handlePointerDown = (event) => {
+    if (event.target.closest) {
+      if (event.target.closest("button")) return;
+      if (event.target.closest(".hex")) return;
+    }
+    cameraTouched.current = true;
+    dragging.current = true;
+    didDrag.current = false;
+    suppressNextClick.current = false;
+    pointerIdRef.current = event.pointerId;
+    if (event.currentTarget.setPointerCapture && typeof event.pointerId === "number") {
+      event.currentTarget.setPointerCapture(event.pointerId);
+    }
+    lastPos.current = { x: event.clientX, y: event.clientY };
+    dragStart.current = { x: event.clientX, y: event.clientY };
+  };
+
+  const handlePointerMove = (event) => {
+    if (dragging.current) {
+      const dx = event.clientX - lastPos.current.x;
+      const dy = event.clientY - lastPos.current.y;
+      offsetRef.current = { x: offsetRef.current.x + dx, y: offsetRef.current.y + dy };
+      if (!panRaf.current) {
+        panRaf.current = requestAnimationFrame(() => {
+          panRaf.current = 0;
+          applyCanvasTransform();
+        });
+      }
+      lastPos.current = { x: event.clientX, y: event.clientY };
+      const totalDx = event.clientX - dragStart.current.x;
+      const totalDy = event.clientY - dragStart.current.y;
+      if (!didDrag.current && Math.hypot(totalDx, totalDy) > 6) {
+        didDrag.current = true;
+        suppressNextClick.current = true;
+      }
+      return;
+    }
+
+    if (phase !== "planning") return;
+    const rect = event.currentTarget.getBoundingClientRect();
+    const centerX = rect.left + rect.width / 2;
+    const centerY = rect.top + rect.height / 2;
+    const x = (event.clientX - centerX - offset.x) / scale;
+    const y = (event.clientY - centerY - offset.y) / scale;
+
+    let best = { index: null, dist2: Number.POSITIVE_INFINITY };
+    for (const path of plannedPathsRef.current || []) {
+      const p0 = path.from;
+      const p1 = { x: path.cx, y: path.cy };
+      const p2 = path.to;
+      const sampleTs = [0.18, 0.34, 0.5, 0.66, 0.82];
+      for (const t of sampleTs) {
+        const a = 1 - t;
+        const px = a * a * p0.x + 2 * a * t * p1.x + t * t * p2.x;
+        const py = a * a * p0.y + 2 * a * t * p1.y + t * t * p2.y;
+        const dx = px - x;
+        const dy = py - y;
+        const dist2 = dx * dx + dy * dy;
+        if (dist2 < best.dist2) best = { index: path.index, dist2 };
+      }
+    }
+
+    const threshold2 = 28 * 28;
+    setHoveredMoveIndex(best.dist2 <= threshold2 ? best.index : null);
+  };
+
+  const handlePointerUp = (event) => {
+    dragging.current = false;
+    if (didDrag.current) suppressNextClick.current = true;
+    const isPlannedMoveControl = Boolean(event?.target?.closest && event.target.closest(".planned-move-controls"));
+    if (panRaf.current) {
+      cancelAnimationFrame(panRaf.current);
+      panRaf.current = 0;
+    }
+    if (offsetRef.current.x !== offset.x || offsetRef.current.y !== offset.y) {
+      setOffset(offsetRef.current);
+    }
+    const pointerId = pointerIdRef.current;
+    pointerIdRef.current = null;
+    if (event.currentTarget.releasePointerCapture && typeof pointerId === "number") {
+      try {
+        event.currentTarget.releasePointerCapture(pointerId);
+      } catch {
+        // ignore
+      }
+    }
+    if (!isPlannedMoveControl) setHoveredMoveIndex(null);
+  };
+
+  return (
+    <div
+      className="board"
+      ref={boardRef}
+      onWheel={handleWheel}
+      onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
+      onPointerUp={handlePointerUp}
+      onPointerLeave={handlePointerUp}
+    >
+      <div className="board-canvas" ref={canvasRef}>
+        <svg className="board-links" viewBox="-3000 -2200 6000 4400">
+          {laneEdges.map((edge) => {
+            const from = positions[edge.fromId];
+            const to = positions[edge.toId];
+            if (!from || !to) return null;
+            const coords = trimLineToHexEdges(from, to, { size: HEX_SIZE, pad: 6 });
+            return (
+              <line
+                key={`lane-${edge.fromId}-${edge.toId}`}
+                x1={coords.x1}
+                y1={coords.y1}
+                x2={coords.x2}
+                y2={coords.y2}
+                className="lane-line"
+              />
+            );
+          })}
+          {movePaths.map((path) => {
+            const battleFx = phase === "resolving" ? battleFxByTargetId.get(path.toId) : null;
+            if (battleFx && battleFx.victoryElapsed > 250) return null;
+            return (
+              <g key={path.key}>
+                <path
+                  d={path.d}
+                  className={path.playerId ? "move-path-base revealed" : "move-path-base"}
+                  style={
+                    path.playerId && players?.[path.playerId]?.color
+                      ? { stroke: hexToRgba(players[path.playerId].color, 0.55) || players[path.playerId].color }
+                      : undefined
+                  }
+                />
+                <path
+                  d={path.d}
+                  className={path.playerId ? "move-path-pulse revealed" : "move-path-pulse"}
+                  style={
+                    path.playerId && players?.[path.playerId]?.color
+                      ? { stroke: hexToRgba(players[path.playerId].color, 0.95) || players[path.playerId].color }
+                      : undefined
+                  }
+                />
+                {phase === "planning" ? (
+                  <g
+                    className="move-badge"
+                    transform={`translate(${path.labelX} ${path.labelY}) rotate(${path.angleDeg || 0})`}
+                  >
+                    <polygon className="move-badge-shape" points="-20,-12 18,0 -20,12 -12,0" />
+                    <g transform={`rotate(${-(path.angleDeg || 0)})`}>
+                      <text
+                        className="move-badge-text"
+                        x="0"
+                        y="0"
+                        data-digits={String(path.count).length}
+                      >
+                        {path.count}
+                      </text>
+                    </g>
+                  </g>
+                ) : null}
+              </g>
+            );
+          })}
+        </svg>
+        {phase === "planning" && hoveredMoveIndex != null ? (
+          <div className="planned-move-controls">
+            {(() => {
+              const path = plannedMovePaths.find((entry) => entry.index === hoveredMoveIndex);
+              if (!path) return null;
+              const dx = path.dx;
+              const dy = path.dy;
+              const len = path.len || 1;
+              const ux = dx / len;
+              const uy = dy / len;
+              const px = -uy;
+              const py = ux;
+              const mx = path.labelX;
+              const my = path.labelY;
+              const spread = 26;
+              const x1 = mx - ux * spread;
+              const y1 = my - uy * spread;
+              const x2 = mx + px * spread;
+              const y2 = my + py * spread;
+              const x3 = mx + ux * spread;
+              const y3 = my + uy * spread;
+              return (
+                <>
+                  <button
+                    type="button"
+                    className="move-btn"
+                    style={{ left: `${x1}px`, top: `${y1}px` }}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onMoveAdjust(path.index, -1);
+                    }}
+                  >
+                    -
+                  </button>
+                  <button
+                    type="button"
+                    className="move-btn cancel"
+                    style={{ left: `${x2}px`, top: `${y2}px` }}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onMoveCancel(path.index);
+                    }}
+                  >
+                    x
+                  </button>
+                  <button
+                    type="button"
+                    className="move-btn"
+                    style={{ left: `${x3}px`, top: `${y3}px` }}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onMoveAdjust(path.index, 1);
+                    }}
+                  >
+                    +
+                  </button>
+                </>
+              );
+            })()}
+          </div>
+        ) : null}
+        {particleTiming
+          ? particles.map((particle) => {
+              const delayMs = (particle.index % 4) * 30;
+              const animationDelayMs = delayMs - particleTiming.elapsedMs;
+              return (
+                <div
+                  key={`${particle.key || `p-${particle.index}`}-${resolutionStartedAt || 0}`}
+                  className="move-particle"
+                  style={{
+                    "--from-x": particle.from.x,
+                    "--from-y": particle.from.y,
+                    "--to-x": particle.to.x,
+                    "--to-y": particle.to.y,
+                    "--travel-duration": `${particleTiming.durationMs}ms`,
+                    "--travel-delay": `${animationDelayMs}ms`,
+                    background: particle.color,
+                    width: `${particle.size || 10}px`,
+                    height: `${particle.size || 10}px`,
+                  }}
+                />
+              );
+            })
+          : null}
+        {systems.map((system) => {
+          const position = positions[system.id];
+          const battle = phase === "resolving" ? battleByTargetId.get(system.id) : null;
+          const elapsed = resolutionStartedAt ? combatNow - resolutionStartedAt : 0;
+          const battleElapsed = battle ? elapsed - battle.startOffsetMs : 0;
+          const battleOngoing = battle ? battleElapsed >= 0 && battleElapsed < battle.durationMs : false;
+          const battleDone = battle ? battleElapsed >= battle.durationMs : false;
+          const battleSkirmishMs = battle ? (battle.attackerSkirmishRounds?.length || 0) * 1000 : 0;
+
+          const displayedOwnerId = battleOngoing
+            ? battle.defenderColorId
+            : battleDone
+              ? battle.winnerId
+              : system.ownerId;
+          const owner = displayedOwnerId ? players?.[displayedOwnerId] : null;
+          const accent = owner?.color || "#8c9bbe";
+          const accentGlow = hexToRgba(accent, 0.25) || "rgba(140, 155, 190, 0.2)";
+          const placement = orders?.placements?.[system.id] || 0;
+
+          let displayedFleets = system.fleets || 0;
+          if (phase === "planning" && viewerId && system.ownerId === viewerId) {
+            displayedFleets += placement;
+          }
+
+          if (battle) {
+            if (battleOngoing) {
+              if (battleElapsed >= battleSkirmishMs && battle.rounds?.length) {
+                const index = Math.min(battle.rounds.length - 1, Math.floor((battleElapsed - battleSkirmishMs) / 1000));
+                displayedFleets = battle.rounds[index]?.defender ?? battle.defenderStartFleets ?? displayedFleets;
+              } else {
+                displayedFleets = battle.defenderStartFleets ?? displayedFleets;
+              }
+            } else if (battleDone) {
+              displayedFleets = battle.winnerFleets ?? displayedFleets;
+            }
+          } else if (phase === "resolving" && resolutionStartedAt) {
+            const outgoing = outgoingByFromId.get(system.id) || 0;
+            if (outgoing > 0) displayedFleets = Math.max(0, displayedFleets - outgoing);
+          }
+          const classes = ["hex", system.ownerId ? "owned" : "neutral"];
+          const isNeighbor = neighborIds.has(system.id);
+          const isOrigin = moveOriginId === system.id;
+          const isPowerupTarget = Boolean(powerupDraft) && Boolean(powerupTargetIds?.has?.(system.id));
+          if (selectedId === system.id) classes.push("selected");
+          if (isNeighbor) classes.push("neighbor");
+          if (isOrigin) classes.push("origin");
+          if (battleOngoing) classes.push("combat");
+          if (isPowerupTarget) classes.push("powerup-target");
+          if (placementMode && phase === "planning" && fleetsRemaining > 0 && viewerId && system.ownerId === viewerId) {
+            classes.push("placeable");
+          }
+          return (
+            <div
+              key={system.id}
+              className={classes.join(" ")}
+              style={{
+                left: `${position.x}px`,
+                top: `${position.y}px`,
+                "--accent-color": accent,
+                "--accent-glow": accentGlow,
+                "--core-color": owner?.color || "#2b344a",
+                "--powerup-color": powerupHighlightColor || "",
+              }}
+              onClick={(event) => {
+                if (suppressNextClick.current) {
+                  suppressNextClick.current = false;
+                  return;
+                }
+                onSystemClick(system, event);
+              }}
+              role="button"
+            >
+              <div className="hex-border" />
+              <div className="hex-core" />
+              <div className="hex-value">{displayedFleets}</div>
+              <div className={`hex-tier tier-${system.tier ?? 0}`} aria-label={`Tier ${(system.tier ?? 0) + 1}`}>
+                {Array.from({ length: (system.tier ?? 0) + 1 }).map((_, index) => (
+                  <span key={`tier-${system.id}-${index}`} />
+                ))}
+              </div>
+              <div className="hex-resources" aria-label="Resources">
+                {RESOURCE_TYPES.map((key) => {
+                  const value = system.resources?.[key] ?? 0;
+                  const fill = Math.max(0, Math.min(1, value / 12));
+                  return (
+                    <div
+                      key={key}
+                      className={`hex-res res-${key}`}
+                      title={`${resourceLabels[key]}: ${value}`}
+                      style={{ "--fill": String(fill) }}
+                    />
+                  );
+                })}
+              </div>
+              {placement > 0 ? <div className="hex-placement">+{placement}</div> : null}
+              {system.defenseNetTurns > 0 ? <div className="hex-shield">DN</div> : null}
+            </div>
+          );
+        })}
+        {false && phase === "planning"
+          ? orders.moves.map((move, index) => {
+              const from = positions[move.fromId];
+              const to = positions[move.toId];
+              if (!from || !to) return null;
+              const dx = to.x - from.x;
+              const dy = to.y - from.y;
+              const len = Math.hypot(dx, dy) || 1;
+              const ux = dx / len;
+              const uy = dy / len;
+              const px = -uy;
+              const py = ux;
+              const mx = from.x + dx * 0.5;
+              const my = from.y + dy * 0.5;
+              const spread = 26;
+              const lift = 18;
+              const x1 = mx - ux * spread;
+              const y1 = my - uy * spread;
+              const x2 = mx + px * spread;
+              const y2 = my + py * spread;
+              const x3 = mx + ux * spread;
+              const y3 = my + uy * spread;
+              const lx = mx - px * lift;
+              const ly = my - py * lift;
+              return (
+                <div key={`movectl-${index}`} className="move-controls">
+                  <div className="move-count" style={{ left: `${lx}px`, top: `${ly}px` }}>
+                    {move.count}
+                  </div>
+                  <button
+                    type="button"
+                    className="move-btn"
+                    style={{ left: `${x1}px`, top: `${y1}px` }}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onMoveAdjust(index, -1);
+                    }}
+                  >
+                    -
+                  </button>
+                  <button
+                    type="button"
+                    className="move-btn cancel"
+                    style={{ left: `${x2}px`, top: `${y2}px` }}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onMoveCancel(index);
+                    }}
+                  >
+                    ×
+                  </button>
+                  <button
+                    type="button"
+                    className="move-btn"
+                    style={{ left: `${x3}px`, top: `${y3}px` }}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onMoveAdjust(index, 1);
+                    }}
+                  >
+                    +
+                  </button>
+                </div>
+              );
+            })
+          : null}
+        {phase === "resolving"
+          ? (resolutionBattles || []).map((battle) => {
+              const state = battleStateByTargetId.get(battle.targetId);
+              if (!state) return null;
+              const pos = positions[battle.targetId];
+              if (!pos) return null;
+              const fx = battleFxByTargetId.get(battle.targetId);
+              const burstKey = `burst-${battle.targetId}-${fx?.tick || 0}`;
+              const sparksKey = `sparks-${battle.targetId}-${fx?.tick || 0}`;
+
+              return (
+                <div key={`combat-${battle.targetId}`} className="combat-overlay" style={{ left: `${pos.x}px`, top: `${pos.y}px` }}>
+                  <div className="combat-fx" aria-hidden="true">
+                    <div key={burstKey} className="combat-burst" />
+                    <div key={sparksKey} className="combat-sparks">
+                      {Array.from({ length: 14 }).map((_, index) => (
+                        <span
+                          key={`spark-${battle.targetId}-${index}`}
+                          className="combat-spark"
+                          style={{
+                            "--spark-angle": `${(index * 360) / 14}deg`,
+                            "--spark-travel": `${52 + (index % 4) * 10}px`,
+                            "--spark-delay": `${(index % 5) * 0.02}s`,
+                          }}
+                        />
+                      ))}
+                    </div>
+                    {fx && fx.victoryElapsed >= 0 && fx.victoryElapsed < 1200 ? <div className="combat-victory">ミ.</div> : null}
+                  </div>
+                  <div className="combat-ring" />
+                  <div className="combat-hud">
+                    {state.mode === "combat" ? (
+                      (() => {
+                        const attackerColor = players?.[battle.attackerId]?.color || "rgba(255,255,255,0.82)";
+                        const defenderColor = battle.defenderColorId
+                          ? players?.[battle.defenderColorId]?.color || "rgba(255,255,255,0.55)"
+                          : "rgba(255,255,255,0.35)";
+                        const attackerStart = Number(battle.attackerStartFleets ?? state.attacker) || 0;
+                        const defenderStart = Number(battle.defenderStartFleets ?? state.defender) || 0;
+                        const scale = Math.max(1, attackerStart, defenderStart);
+                        const atkRatio = clamp(Number(state.attacker) / scale, 0, 1);
+                        const defRatio = clamp(Number(state.defender) / scale, 0, 1);
+                        return (
+                          <div className="combat-bars">
+                            <div className="combat-bar-row">
+                              <span className="combat-bar-label">ATK</span>
+                              <span className="combat-bar-track" aria-hidden="true">
+                                <span className="combat-bar-fill" style={{ width: `${atkRatio * 100}%`, background: attackerColor }} />
+                              </span>
+                              <span className="combat-bar-value">{state.attacker}</span>
+                            </div>
+                            <div className="combat-bar-row">
+                              <span className="combat-bar-label">DEF</span>
+                              <span className="combat-bar-track" aria-hidden="true">
+                                <span className="combat-bar-fill" style={{ width: `${defRatio * 100}%`, background: defenderColor }} />
+                              </span>
+                              <span className="combat-bar-value">{state.defender}</span>
+                            </div>
+                          </div>
+                        );
+                      })()
+                    ) : (
+                      (() => {
+                        const sorted = (state.attackers || []).slice().sort((a, b) => b.fleets - a.fleets);
+                        const max = Math.max(1, ...sorted.map((entry) => Number(entry.fleets) || 0));
+                        return (
+                          <>
+                            <div className="combat-title">Skirmish</div>
+                            <div className="combat-bars">
+                              {sorted.slice(0, 4).map((entry) => {
+                                const color = players?.[entry.playerId]?.color || "rgba(255,255,255,0.55)";
+                                const ratio = clamp((Number(entry.fleets) || 0) / max, 0, 1);
+                                return (
+                                  <div key={entry.playerId || "neutral"} className="combat-bar-row">
+                                    <span className="combat-dot" style={{ background: color }} aria-hidden="true" />
+                                    <span className="combat-bar-track" aria-hidden="true">
+                                      <span className="combat-bar-fill" style={{ width: `${ratio * 100}%`, background: color }} />
+                                    </span>
+                                    <span className="combat-bar-value">{entry.fleets}</span>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </>
+                        );
+                      })()
+                    )}
+                  </div>
+                </div>
+              );
+            })
+          : null}
+        {phase === "resolving" && activeBattle && activeBattleState ? (
+          <div
+            className="combat-overlay"
+            style={{ left: `${positions[activeBattle.targetId]?.x || 0}px`, top: `${positions[activeBattle.targetId]?.y || 0}px` }}
+          >
+            <div className="combat-fx" aria-hidden="true">
+              <div key={`burst-${activeBattle.targetId}-${activeBattleFx?.tick || 0}`} className="combat-burst" />
+              <div key={`sparks-${activeBattle.targetId}-${activeBattleFx?.tick || 0}`} className="combat-sparks">
+                {Array.from({ length: 14 }).map((_, index) => (
+                  <span
+                    key={`spark-${index}`}
+                    className="combat-spark"
+                    style={{
+                      "--spark-angle": `${(index * 360) / 14}deg`,
+                      "--spark-travel": `${52 + (index % 4) * 10}px`,
+                      "--spark-delay": `${(index % 5) * 0.02}s`,
+                    }}
+                  />
+                ))}
+              </div>
+              {activeBattleFx && activeBattleFx.victoryElapsed >= 0 && activeBattleFx.victoryElapsed < 1200 ? (
+                <div className="combat-victory">★</div>
+              ) : null}
+            </div>
+            <div className="combat-ring" />
+            <div className="combat-hud">
+              {activeBattleState.mode === "combat" ? (
+                (() => {
+                  const attackerColor = players?.[activeBattle.attackerId]?.color || "rgba(255,255,255,0.82)";
+                  const defenderColor = activeBattle.defenderColorId
+                    ? players?.[activeBattle.defenderColorId]?.color || "rgba(255,255,255,0.55)"
+                    : "rgba(255,255,255,0.35)";
+                  const attackerStart = Number(activeBattle.attackerStartFleets ?? activeBattleState.attacker) || 0;
+                  const defenderStart = Number(activeBattle.defenderStartFleets ?? activeBattleState.defender) || 0;
+                  const scale = Math.max(1, attackerStart, defenderStart);
+                  const atkRatio = clamp(Number(activeBattleState.attacker) / scale, 0, 1);
+                  const defRatio = clamp(Number(activeBattleState.defender) / scale, 0, 1);
+                  return (
+                    <div className="combat-bars">
+                      <div className="combat-bar-row">
+                        <span className="combat-bar-label">ATK</span>
+                        <span className="combat-bar-track" aria-hidden="true">
+                          <span className="combat-bar-fill" style={{ width: `${atkRatio * 100}%`, background: attackerColor }} />
+                        </span>
+                        <span className="combat-bar-value">{activeBattleState.attacker}</span>
+                      </div>
+                      <div className="combat-bar-row">
+                        <span className="combat-bar-label">DEF</span>
+                        <span className="combat-bar-track" aria-hidden="true">
+                          <span className="combat-bar-fill" style={{ width: `${defRatio * 100}%`, background: defenderColor }} />
+                        </span>
+                        <span className="combat-bar-value">{activeBattleState.defender}</span>
+                      </div>
+                    </div>
+                  );
+                })()
+              ) : (
+                (() => {
+                  const sorted = (activeBattleState.attackers || []).slice().sort((a, b) => b.fleets - a.fleets);
+                  const max = Math.max(1, ...sorted.map((entry) => Number(entry.fleets) || 0));
+                  return (
+                    <>
+                      <div className="combat-title">Skirmish</div>
+                      <div className="combat-bars">
+                        {sorted.slice(0, 4).map((entry) => {
+                          const color = players?.[entry.playerId]?.color || "rgba(255,255,255,0.55)";
+                          const ratio = clamp((Number(entry.fleets) || 0) / max, 0, 1);
+                          return (
+                            <div key={entry.playerId || "neutral"} className="combat-bar-row">
+                              <span className="combat-dot" style={{ background: color }} aria-hidden="true" />
+                              <span className="combat-bar-track" aria-hidden="true">
+                                <span className="combat-bar-fill" style={{ width: `${ratio * 100}%`, background: color }} />
+                              </span>
+                              <span className="combat-bar-value">{entry.fleets}</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </>
+                  );
+                })()
+              )}
+            </div>
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+});
+
+export default Board;
+
