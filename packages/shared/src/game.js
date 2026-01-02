@@ -32,12 +32,90 @@ export function createGame({ id, config = {}, seed = "stellcon" } = {}) {
   };
 }
 
-export function addPlayer(game, { id, name }) {
+const NEIGHBOR_OFFSETS = [
+  { q: 1, r: 0 },
+  { q: 1, r: -1 },
+  { q: 0, r: -1 },
+  { q: -1, r: 0 },
+  { q: -1, r: 1 },
+  { q: 0, r: 1 },
+];
+
+function systemId(q, r) {
+  return `s${q}_${r}`;
+}
+
+function addLink(links, fromId, toId) {
+  links[fromId] ||= [];
+  links[toId] ||= [];
+  if (!links[fromId].includes(toId)) links[fromId].push(toId);
+  if (!links[toId].includes(fromId)) links[toId].push(fromId);
+}
+
+function rollTier2Resources(rand) {
+  const resources = {};
+  for (const key of RESOURCE_TYPES) {
+    resources[key] = 8 + Math.floor(rand() * 5);
+  }
+  return resources;
+}
+
+function rollTier0Resources(rand) {
+  const resources = {};
+  for (const key of RESOURCE_TYPES) {
+    resources[key] = 1 + Math.floor(rand() * 4);
+  }
+  return resources;
+}
+
+function rollTier0Fleets(rand) {
+  return Math.floor(rand() * 4);
+}
+
+function ensureSystem(game, { q, r, tier, rand }) {
+  const id = systemId(q, r);
+  const existing = game.systems.find((system) => system.id === id);
+  if (existing) return existing;
+
+  const system = {
+    id,
+    q,
+    r,
+    tier,
+    resources: tier >= 2 ? rollTier2Resources(rand) : rollTier0Resources(rand),
+    ownerId: null,
+    fleets: rollTier0Fleets(rand),
+    defenseNetTurns: 0,
+    terraformed: false,
+  };
+
+  game.systems.push(system);
+  game.links[id] ||= [];
+
+  for (const offset of NEIGHBOR_OFFSETS) {
+    const neighborId = systemId(q + offset.q, r + offset.r);
+    if (game.links[neighborId]) addLink(game.links, id, neighborId);
+  }
+
+  return system;
+}
+
+function pickPlayerColor(game, requested) {
+  const allowed = PLAYER_COLORS.map((value) => value.toLowerCase());
+  const used = new Set(Object.values(game.players).map((player) => String(player.color || "").toLowerCase()));
+  const desired = String(requested || "").toLowerCase();
+  if (desired && allowed.includes(desired) && !used.has(desired)) return requested;
+  const next = allowed.find((value) => !used.has(value));
+  if (next) return PLAYER_COLORS[allowed.indexOf(next)];
+  return PLAYER_COLORS[Object.keys(game.players).length % PLAYER_COLORS.length];
+}
+
+export function addPlayer(game, { id, name, color: requestedColor } = {}) {
   if (Object.keys(game.players).length >= game.config.maxPlayers) {
     throw new Error("Game is full");
   }
 
-  const color = PLAYER_COLORS[Object.keys(game.players).length % PLAYER_COLORS.length];
+  const color = pickPlayerColor(game, requestedColor);
   game.players[id] = {
     id,
     name,
@@ -60,14 +138,28 @@ export function addPlayer(game, { id, name }) {
 export function assignHomeworlds(game) {
   const rand = mulberry32(seedToInt(game.seed));
   const players = Object.values(game.players);
-  const homes = pickHomeworlds(game.systems, players.length, rand);
+  const tier2Candidates = game.systems.filter((system) => (system.tier ?? 0) >= 2);
+  const pool = tier2Candidates.length >= players.length ? tier2Candidates : game.systems;
+  const homes = pickHomeworlds(pool, players.length, rand);
 
   players.forEach((player, index) => {
     const system = homes[index];
     if (!system) return;
+
+    system.tier = 2;
+    system.resources = rollTier2Resources(rand);
     system.ownerId = player.id;
     system.fleets = HOMEWORLD_FLEETS;
     player.homeSystemId = system.id;
+
+    for (const offset of NEIGHBOR_OFFSETS) {
+      ensureSystem(game, {
+        q: system.q + offset.q,
+        r: system.r + offset.r,
+        tier: 0,
+        rand,
+      });
+    }
   });
 }
 

@@ -8,13 +8,22 @@ export const RESOURCE_COLORS = {
 };
 
 export const POWERUPS = {
-  stellarBomb: { key: "stellarBomb", label: "Stellar Bomb", unlockCost: 30, cost: 20, resource: "metal", duration: 0 },
-  terraform: { key: "terraform", label: "Terraform", unlockCost: 30, cost: 20, resource: "terrain", duration: 0 },
-  defenseNet: { key: "defenseNet", label: "Defense Net", unlockCost: 30, cost: 20, resource: "crystal", duration: 3 },
-  wormhole: { key: "wormhole", label: "Wormhole", unlockCost: 30, cost: 20, resource: "fusion", duration: 3 },
+  stellarBomb: { key: "stellarBomb", label: "Stellar Bomb", unlockCost: 20, cost: 20, resource: "metal", duration: 0 },
+  terraform: { key: "terraform", label: "Terraform", unlockCost: 20, cost: 20, resource: "terrain", duration: 0 },
+  defenseNet: { key: "defenseNet", label: "Defense Net", unlockCost: 20, cost: 20, resource: "crystal", duration: 3 },
+  wormhole: { key: "wormhole", label: "Wormhole", unlockCost: 20, cost: 20, resource: "fusion", duration: 3 },
 };
 
-export const PLAYER_COLORS = ["#e7656f", "#44d07f", "#7cc6ff", "#b487ff", "#f28b5b", "#f4d35e"];
+export const PLAYER_COLORS = [
+  "#ff5f6d", // hot red
+  "#ff9f43", // amber
+  "#ffd93d", // gold
+  "#3dffb8", // mint
+  "#35d0ff", // cyan
+  "#4a7dff", // blue
+  "#b06cff", // violet
+  "#ff5fe7", // magenta
+];
 
 export const MAP_SIZES = {
   small: { width: 12, height: 8 },

@@ -36,6 +36,24 @@ const pendingAlliances = new Map();
 const resolveTimers = new Map();
 const BASE_RESOLVE_DELAY_MS = 1600;
 
+function normalizePlayerName(value) {
+  return String(value || "")
+    .trim()
+    .replace(/\s+/g, " ");
+}
+
+function ensureUniqueName(game, proposedName) {
+  const name = normalizePlayerName(proposedName);
+  if (!name) throw new Error("Name is required");
+  const lower = name.toLowerCase();
+  for (const player of Object.values(game.players || {})) {
+    if (normalizePlayerName(player.name).toLowerCase() === lower) {
+      throw new Error("Name already taken in this game");
+    }
+  }
+  return name;
+}
+
 function getGame(gameId) {
   return games.get(gameId);
 }
@@ -133,7 +151,7 @@ function forceResolveIfExpired() {
 setInterval(forceResolveIfExpired, 1000);
 
 io.on("connection", (socket) => {
-  socket.on("createGame", ({ name, config }, callback) => {
+  socket.on("createGame", ({ name, config, color }, callback) => {
     try {
       const gameId = nanoid(6).toUpperCase();
       const game = createGame({ id: gameId, config, seed: `stellcon-${gameId}` });
@@ -141,7 +159,7 @@ io.on("connection", (socket) => {
       games.set(gameId, game);
 
       const playerId = nanoid(8);
-      addPlayer(game, { id: playerId, name: name || "Commander" });
+      addPlayer(game, { id: playerId, name: ensureUniqueName(game, name), color });
 
       trackSession(socket.id, { gameId, playerId });
       socket.join(`game:${gameId}`);
@@ -156,14 +174,14 @@ io.on("connection", (socket) => {
     }
   });
 
-  socket.on("joinGame", ({ gameId, name }, callback) => {
+  socket.on("joinGame", ({ gameId, name, color }, callback) => {
     try {
       const game = ensureGame(gameId);
       if (Object.keys(game.players).length >= game.config.maxPlayers) {
         throw new Error("Game is full");
       }
       const playerId = nanoid(8);
-      addPlayer(game, { id: playerId, name: name || "Commander" });
+      addPlayer(game, { id: playerId, name: ensureUniqueName(game, name), color });
 
       trackSession(socket.id, { gameId, playerId });
       socket.join(`game:${gameId}`);

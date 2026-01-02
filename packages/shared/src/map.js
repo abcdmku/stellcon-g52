@@ -105,13 +105,46 @@ function addLane(links, fromId, toId) {
   if (!links[toId].includes(fromId)) links[toId].push(fromId);
 }
 
+function removeSoloSystems(systems, links) {
+  const keep = new Set();
+  for (const [id, neighbors] of Object.entries(links)) {
+    if ((neighbors || []).length > 0) keep.add(id);
+  }
+
+  if (keep.size === systems.length) return { systems, links };
+
+  const nextSystems = systems.filter((system) => keep.has(system.id));
+  const nextLinks = {};
+  for (const [id, neighbors] of Object.entries(links)) {
+    if (!keep.has(id)) continue;
+    nextLinks[id] = (neighbors || []).filter((neighborId) => keep.has(neighborId));
+  }
+
+  return { systems: nextSystems, links: nextLinks };
+}
+
+function bestLaneBetween(systemMap, fromIds, toIds) {
+  let best = null;
+  for (const fromId of fromIds) {
+    const from = systemMap[fromId];
+    if (!from) continue;
+    for (const toId of toIds) {
+      const to = systemMap[toId];
+      if (!to) continue;
+      const dist = axialDistance(from, to);
+      if (!best || dist < best.dist) best = { fromId, toId, dist };
+    }
+  }
+  return best;
+}
+
 export function generateGalaxy({ seed = "stellcon", width = 18, height = 12, density = 0.55 } = {}) {
   const rand = mulberry32(seedToInt(seed));
   const allCoords = rectCoords(width, height);
   const targetCount = Math.max(24, Math.min(allCoords.length, Math.floor(allCoords.length * density)));
   const coords = generateRandomCoords({ allCoords, targetCount, rand });
 
-  const systems = coords.map(({ q, r }) => {
+  let systems = coords.map(({ q, r }) => {
     const roll = rand();
     const tier = roll > 0.95 ? 2 : roll > 0.83 ? 1 : 0;
     const ranges = [
@@ -145,34 +178,102 @@ export function generateGalaxy({ seed = "stellcon", width = 18, height = 12, den
     };
   });
 
-  const systemMap = systems.reduce((acc, system) => {
+  let systemMap = systems.reduce((acc, system) => {
     acc[system.id] = system;
     return acc;
   }, {});
 
-  const links = systems.reduce((acc, system) => {
+  let links = systems.reduce((acc, system) => {
     const neighbors = NEIGHBOR_OFFSETS.map((offset) => systemId(system.q + offset.q, system.r + offset.r))
       .filter((neighborId) => systemMap[neighborId]);
     acc[system.id] = neighbors;
     return acc;
   }, {});
 
+  ({ systems, links } = removeSoloSystems(systems, links));
+  systemMap = systems.reduce((acc, system) => {
+    acc[system.id] = system;
+    return acc;
+  }, {});
+
   const components = connectedComponents(systemMap, links);
   if (components.length > 1) {
-    for (const component of components) {
-      if (component.length < 3) continue;
+    const sizes = components.map((component) => component.length);
+    let mainIndex = 0;
+    for (let index = 1; index < components.length; index += 1) {
+      if (sizes[index] > sizes[mainIndex]) mainIndex = index;
+    }
+
+    const parent = Array.from({ length: components.length }, (_, index) => index);
+    const findRoot = (index) => {
+      let current = index;
+      while (parent[current] !== current) current = parent[current];
+      let cursor = index;
+      while (parent[cursor] !== cursor) {
+        const next = parent[cursor];
+        parent[cursor] = current;
+        cursor = next;
+      }
+      return current;
+    };
+    const unionRoots = (a, b) => {
+      const ra = findRoot(a);
+      const rb = findRoot(b);
+      if (ra === rb) return ra;
+      parent[rb] = ra;
+      return ra;
+    };
+
+    const connectOnceByRootPair = new Set();
+    const connectComponents = (fromIndex, toIndex) => {
+      const fromRoot = findRoot(fromIndex);
+      const toRoot = findRoot(toIndex);
+      if (fromRoot === toRoot) return false;
+      const pairKey = [fromRoot, toRoot].sort((a, b) => a - b).join("-");
+      if (connectOnceByRootPair.has(pairKey)) return false;
+
+      const best = bestLaneBetween(systemMap, components[fromIndex], components[toIndex]);
+      if (!best) return false;
+      addLane(links, best.fromId, best.toId);
+      connectOnceByRootPair.add(pairKey);
+      unionRoots(fromRoot, toRoot);
+      return true;
+    };
+
+    const LARGE_ISLAND_SIZE = 8;
+
+    // 1) Ensure large islands connect directly to the main landmass.
+    for (let index = 0; index < components.length; index += 1) {
+      if (index === mainIndex) continue;
+      if (sizes[index] < LARGE_ISLAND_SIZE) continue;
+      connectComponents(index, mainIndex);
+    }
+
+    // 2) Connect remaining islands without creating duplicate island-to-island lanes.
+    while (true) {
+      const mainRoot = findRoot(mainIndex);
+      const remaining = [];
+      const connected = [];
+
+      for (let index = 0; index < components.length; index += 1) {
+        if (sizes[index] < 2) continue;
+        if (findRoot(index) === mainRoot) connected.push(index);
+        else remaining.push(index);
+      }
+
+      if (remaining.length === 0) break;
+
       let best = null;
-      for (const fromId of component) {
-        const from = systemMap[fromId];
-        for (const [candidateId, candidate] of Object.entries(systemMap)) {
-          if (component.includes(candidateId)) continue;
-          const dist = axialDistance(from, candidate);
-          if (!best || dist < best.dist) {
-            best = { fromId, toId: candidateId, dist };
-          }
+      for (const fromIndex of remaining) {
+        for (const toIndex of connected) {
+          const candidate = bestLaneBetween(systemMap, components[fromIndex], components[toIndex]);
+          if (!candidate) continue;
+          if (!best || candidate.dist < best.dist) best = { ...candidate, fromIndex, toIndex };
         }
       }
-      if (best) addLane(links, best.fromId, best.toId);
+
+      if (!best) break;
+      connectComponents(best.fromIndex, best.toIndex);
     }
   }
 
