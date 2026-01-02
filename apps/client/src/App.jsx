@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { io } from "socket.io-client";
 import { MAP_SIZES, PLAYER_COLORS, POWERUPS, RESOURCE_COLORS, RESOURCE_TYPES, RESOLUTION_TRAVEL_MS } from "@stellcon/shared";
 import { demoPlayerId, demoState } from "./demoState.js";
@@ -21,6 +21,13 @@ const resourceAbbr = {
   terrain: "T",
   metal: "M",
   crystal: "C",
+};
+
+const powerupHelp = {
+  stellarBomb: "Place on any system you can attack; eliminates half the fleets. Blocked by Defense Net.",
+  defenseNet: "Place on any of your systems; blocks all attacks (including Stellar Bombs).",
+  terraform: "Place on one of your tier 0–1 systems; raises its tier by 1.",
+  wormhole: "Place on any of your systems; lets you move from any of your systems to anywhere on the map.",
 };
 
 function FleetIcon({ size = 18 } = {}) {
@@ -148,6 +155,7 @@ function Lobby({ onCreate, onJoin, onWatch, isBusy, games }) {
   const [mode, setMode] = useState("join");
   const [name, setName] = useState(() => window.localStorage.getItem("stellcon.name") || "");
   const [color, setColor] = useState(() => window.localStorage.getItem("stellcon.color") || PLAYER_COLORS[0]);
+  const [joinColors, setJoinColors] = useState({});
   const [maxPlayers, setMaxPlayers] = useState(2);
   const [mapSize, setMapSize] = useState("medium");
   const [isPrivate, setIsPrivate] = useState(false);
@@ -165,6 +173,50 @@ function Lobby({ onCreate, onJoin, onWatch, isBusy, games }) {
     window.localStorage.setItem("stellcon.color", color);
   }, [color]);
 
+  useEffect(() => {
+    if (mode !== "join") return;
+    setJoinColors((current) => {
+      const next = { ...current };
+      let changed = false;
+
+      const gameIds = new Set((games || []).map((game) => game.gameId));
+      for (const existing of Object.keys(next)) {
+        if (!gameIds.has(existing)) {
+          delete next[existing];
+          changed = true;
+        }
+      }
+
+      for (const game of games || []) {
+        const available = Array.isArray(game.availableColors) ? game.availableColors : PLAYER_COLORS;
+        const selected = next[game.gameId];
+        const fallback = available.includes(color) ? color : available[0];
+
+        if (!selected && fallback) {
+          next[game.gameId] = fallback;
+          changed = true;
+          continue;
+        }
+
+        if (selected && !available.includes(selected)) {
+          if (fallback) {
+            next[game.gameId] = fallback;
+          } else {
+            delete next[game.gameId];
+          }
+          changed = true;
+        }
+      }
+
+      return changed ? next : current;
+    });
+  }, [color, games, mode]);
+
+  const handleJoinColorPick = (gameId, nextColor) => {
+    setColor(nextColor);
+    setJoinColors((current) => ({ ...current, [gameId]: nextColor }));
+  };
+
   return (
     <>
       <div className="lobby-title">StellCon Command Nexus</div>
@@ -175,23 +227,25 @@ function Lobby({ onCreate, onJoin, onWatch, isBusy, games }) {
           Commander Name (unique per game)
           <input value={name} onChange={(event) => setName(event.target.value)} placeholder="Commander" />
         </label>
-        <label className="color-picker">
-          Color
-          <div className="color-row" role="listbox" aria-label="Player color">
-            {PLAYER_COLORS.map((value) => (
-              <button
-                key={value}
-                type="button"
-                className={`color-swatch ${color === value ? "active" : ""}`}
-                style={{ background: value }}
-                onClick={() => setColor(value)}
-                aria-label={`Color ${value}`}
-                aria-selected={color === value}
-                role="option"
-              />
-            ))}
-          </div>
-        </label>
+        {mode === "create" ? (
+          <label className="color-picker">
+            Color
+            <div className="color-row" role="listbox" aria-label="Player color">
+              {PLAYER_COLORS.map((value) => (
+                <button
+                  key={value}
+                  type="button"
+                  className={`color-swatch ${color === value ? "active" : ""}`}
+                  style={{ background: value }}
+                  onClick={() => setColor(value)}
+                  aria-label={`Color ${value}`}
+                  aria-selected={color === value}
+                  role="option"
+                />
+              ))}
+            </div>
+          </label>
+        ) : null}
       </div>
 
       <div className="lobby-tabs" role="tablist" aria-label="Lobby mode">
@@ -221,7 +275,9 @@ function Lobby({ onCreate, onJoin, onWatch, isBusy, games }) {
           <GamesList
             games={games}
             onWatch={(target) => onWatch(target)}
-            onJoin={(target) => onJoin({ name: trimmedName, gameId: target })}
+            onJoin={(target, joinColor) => onJoin({ name: trimmedName, gameId: target, color: joinColor })}
+            onPickColor={handleJoinColorPick}
+            selectedColors={joinColors}
             disableJoin={!nameValid || isBusy}
           />
           <div className="muted" style={{ marginTop: 10 }}>
@@ -316,36 +372,63 @@ function Lobby({ onCreate, onJoin, onWatch, isBusy, games }) {
   );
 }
 
-function GamesList({ games, onWatch, onJoin, disableJoin }) {
+function GamesList({ games, onWatch, onJoin, onPickColor, selectedColors, disableJoin }) {
   if (!games?.length) {
     return <div className="muted">No public games right now. Create one!</div>;
   }
 
   return (
     <div className="games-list">
-      {games.map((game) => (
-        <div key={game.gameId} className="game-row">
-          <div>
-            <div className="game-code">{game.gameId}</div>
-            <div className="muted">
-              {game.players}/{game.maxPlayers} players - {game.mapSize} - turn {game.turn} ({game.phase})
+      {games.map((game) => {
+        const availableColors = Array.isArray(game.availableColors) ? game.availableColors : PLAYER_COLORS;
+        const selectedColor = selectedColors?.[game.gameId];
+        const joinColor = selectedColor && availableColors.includes(selectedColor) ? selectedColor : availableColors[0];
+        const hasColors = availableColors.length > 0;
+
+        return (
+          <div key={game.gameId} className="game-row">
+            <div>
+              <div className="game-code">{game.gameId}</div>
+              <div className="muted">
+                {game.players}/{game.maxPlayers} players - {game.mapSize} - turn {game.turn} ({game.phase})
+              </div>
+            </div>
+            <div className="game-right">
+              {hasColors ? (
+                <div className="game-color-row" role="listbox" aria-label={`Available colors for game ${game.gameId}`}>
+                  {availableColors.map((value) => (
+                    <button
+                      key={value}
+                      type="button"
+                      className={`color-swatch ${joinColor === value ? "active" : ""}`}
+                      style={{ background: value }}
+                      onClick={() => onPickColor?.(game.gameId, value)}
+                      aria-label={`Color ${value}`}
+                      aria-selected={joinColor === value}
+                      role="option"
+                    />
+                  ))}
+                </div>
+              ) : (
+                <div className="muted">No colors left</div>
+              )}
+              <div className="game-actions">
+                <button type="button" onClick={() => onWatch(game.gameId)}>
+                  Watch
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onJoin(game.gameId, joinColor)}
+                  disabled={disableJoin || game.players >= game.maxPlayers || !hasColors}
+                  title={disableJoin ? "Enter a unique commander name to join." : undefined}
+                >
+                  Join
+                </button>
+              </div>
             </div>
           </div>
-          <div className="game-actions">
-            <button type="button" onClick={() => onWatch(game.gameId)}>
-              Watch
-            </button>
-            <button
-              type="button"
-              onClick={() => onJoin(game.gameId)}
-              disabled={disableJoin || game.players >= game.maxPlayers}
-              title={disableJoin ? "Enter a unique commander name to join." : undefined}
-            >
-              Join
-            </button>
-          </div>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
@@ -397,6 +480,9 @@ function Board({
   phase,
   viewerId,
   wormholeTurns,
+  powerupDraft,
+  powerupTargetIds,
+  powerupHighlightColor,
   placementMode,
   fleetsRemaining,
   selectedId,
@@ -407,11 +493,28 @@ function Board({
 }) {
   const [scale, setScale] = useState(1);
   const [offset, setOffset] = useState({ x: 0, y: 0 });
+  const boardRef = useRef(null);
+  const cameraTouched = useRef(false);
+  const cameraFitKey = useRef(null);
   const dragging = useRef(false);
   const lastPos = useRef({ x: 0, y: 0 });
   const dragStart = useRef({ x: 0, y: 0 });
   const didDrag = useRef(false);
   const suppressNextClick = useRef(false);
+  const mapBoundsKey = useMemo(() => {
+    if (!systems?.length) return "empty";
+    let minQ = Number.POSITIVE_INFINITY;
+    let maxQ = Number.NEGATIVE_INFINITY;
+    let minR = Number.POSITIVE_INFINITY;
+    let maxR = Number.NEGATIVE_INFINITY;
+    for (const system of systems) {
+      minQ = Math.min(minQ, system.q);
+      maxQ = Math.max(maxQ, system.q);
+      minR = Math.min(minR, system.r);
+      maxR = Math.max(maxR, system.r);
+    }
+    return `${systems.length}:${minQ},${maxQ}:${minR},${maxR}`;
+  }, [systems]);
   const neighborIds = useMemo(() => {
     if (!moveOriginId || !viewerId) return new Set();
     const systemMap = new Map(systems.map((system) => [system.id, system]));
@@ -421,7 +524,7 @@ function Board({
     const reachable = new Set();
     if (wormholeTurns > 0) {
       for (const system of systems) {
-        if (system.ownerId === viewerId && system.id !== moveOriginId) reachable.add(system.id);
+        if (system.id !== moveOriginId) reachable.add(system.id);
       }
     } else {
       const visited = new Set([moveOriginId]);
@@ -458,6 +561,106 @@ function Board({
     return entries;
   }, [systems]);
 
+  const systemsForBounds = useMemo(() => systems, [mapBoundsKey]);
+  const mapPixelBounds = useMemo(() => {
+    if (!systemsForBounds?.length) return null;
+
+    let minX = Number.POSITIVE_INFINITY;
+    let maxX = Number.NEGATIVE_INFINITY;
+    let minY = Number.POSITIVE_INFINITY;
+    let maxY = Number.NEGATIVE_INFINITY;
+
+    for (const system of systemsForBounds) {
+      const { x, y } = axialToPixel(system.q, system.r, HEX_SIZE);
+      minX = Math.min(minX, x);
+      maxX = Math.max(maxX, x);
+      minY = Math.min(minY, y);
+      maxY = Math.max(maxY, y);
+    }
+
+    return { minX, maxX, minY, maxY };
+  }, [systemsForBounds]);
+
+  const fitCameraToMap = useCallback(() => {
+    const boardEl = boardRef.current;
+    if (!boardEl || !mapPixelBounds) return;
+
+    const isNewMap = cameraFitKey.current !== mapBoundsKey;
+    if (!isNewMap && cameraTouched.current) return;
+
+    const rect = boardEl.getBoundingClientRect();
+    if (!rect.width || !rect.height) return;
+
+    const { minX, maxX, minY, maxY } = mapPixelBounds;
+
+    const padX = HEX_SIZE;
+    const padY = (HEX_SIZE * Math.sqrt(3)) / 2;
+    const contentWidth = Math.max(1, maxX - minX + padX * 2);
+    const contentHeight = Math.max(1, maxY - minY + padY * 2);
+
+    const margin = 40;
+    const rootStyles = getComputedStyle(document.documentElement);
+    const overlayGap = Number.parseFloat(rootStyles.getPropertyValue("--board-safe-gap")) || 16;
+    let safeLeft = margin;
+    let safeTop = margin;
+    let safeRight = rect.width - margin;
+    let safeBottom = rect.height - margin;
+
+    const leftHud = document.querySelector(".overlay-section.left");
+    const rightHud = document.querySelector(".overlay-section.right");
+    const topHud = document.querySelector(".overlay-top");
+    const bottomHud = document.querySelector(".overlay-bottom");
+
+    if (leftHud) {
+      const r = leftHud.getBoundingClientRect();
+      safeLeft = Math.max(safeLeft, r.right - rect.left + overlayGap);
+    }
+    if (rightHud) {
+      const r = rightHud.getBoundingClientRect();
+      safeRight = Math.min(safeRight, r.left - rect.left - overlayGap);
+    }
+    if (topHud) {
+      const r = topHud.getBoundingClientRect();
+      safeTop = Math.max(safeTop, r.bottom - rect.top + overlayGap);
+    }
+    if (bottomHud) {
+      const r = bottomHud.getBoundingClientRect();
+      safeBottom = Math.min(safeBottom, r.top - rect.top - overlayGap);
+    }
+
+    const availableWidth = Math.max(1, safeRight - safeLeft);
+    const availableHeight = Math.max(1, safeBottom - safeTop);
+
+    const nextScale = clamp(Math.min(availableWidth / contentWidth, availableHeight / contentHeight), 0.35, 1.15);
+    const centerX = (minX + maxX) / 2;
+    const centerY = (minY + maxY) / 2;
+
+    const boardCenterX = rect.width / 2;
+    const boardCenterY = rect.height / 2;
+    const safeCenterX = safeLeft + availableWidth / 2;
+    const safeCenterY = safeTop + availableHeight / 2;
+    const deltaX = safeCenterX - boardCenterX;
+    const deltaY = safeCenterY - boardCenterY;
+
+    const nextOffset = { x: deltaX - centerX * nextScale, y: deltaY - centerY * nextScale };
+
+    setScale((prev) => (Object.is(prev, nextScale) ? prev : nextScale));
+    setOffset((prev) => (prev.x === nextOffset.x && prev.y === nextOffset.y ? prev : nextOffset));
+
+    cameraTouched.current = false;
+    cameraFitKey.current = mapBoundsKey;
+  }, [mapBoundsKey, mapPixelBounds]);
+
+  useEffect(() => {
+    fitCameraToMap();
+  }, [fitCameraToMap]);
+
+  useEffect(() => {
+    const handleResize = () => fitCameraToMap();
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, [fitCameraToMap]);
+
   const laneEdges = useMemo(() => {
     const lanes = [];
     const seen = new Set();
@@ -477,23 +680,89 @@ function Board({
   }, [links, systemById]);
 
   const moveLines = useMemo(() => {
-    const source = revealedMoves && revealedMoves.length ? revealedMoves : orders?.moves || [];
-    return source
-      .map((move, index) => {
-        const planned = !move.playerId;
-        return {
-          key: planned ? `me-${index}-${move.fromId}-${move.toId}` : `${move.playerId}-${move.fromId}-${move.toId}-${move.count}`,
-          index: planned ? index : null,
-          playerId: move.playerId || null,
+    const plannedMoves = orders?.moves || [];
+    const showRevealedMoves = phase === "resolving" && revealedMoves && revealedMoves.length > 0;
+    if (!showRevealedMoves) {
+      return plannedMoves
+        .map((move, index) => ({
+          key: `me-${index}-${move.fromId}-${move.toId}`,
+          index,
+          playerId: null,
           fromId: move.fromId,
           toId: move.toId,
           count: Number(move.count) || 0,
           from: positions[move.fromId],
           to: positions[move.toId],
-        };
-      })
-      .filter((entry) => entry.from && entry.to);
-  }, [orders, positions, revealedMoves]);
+        }))
+        .filter((entry) => entry.from && entry.to);
+    }
+
+    const passthrough = [];
+    const attackGroups = new Map();
+
+    for (const [moveIndex, move] of revealedMoves.entries()) {
+      const from = positions[move.fromId];
+      const to = positions[move.toId];
+      if (!from || !to) continue;
+      const playerId = move.playerId || null;
+      if (!playerId) continue;
+      const count = Number(move.count) || 0;
+      if (count <= 0) continue;
+
+      const targetOwnerId = systemById[move.toId]?.ownerId || null;
+      const isAttack = targetOwnerId !== playerId;
+      if (!isAttack) {
+        passthrough.push({
+          key: `${playerId}-${move.fromId}-${move.toId}-${count}-${moveIndex}`,
+          index: null,
+          playerId,
+          fromId: move.fromId,
+          toId: move.toId,
+          count,
+          from,
+          to,
+        });
+        continue;
+      }
+
+      const key = `${playerId}:${move.toId}`;
+      if (!attackGroups.has(key)) {
+        attackGroups.set(key, {
+          playerId,
+          toId: move.toId,
+          totalFleets: 0,
+          weight: 0,
+          sumX: 0,
+          sumY: 0,
+        });
+      }
+      const group = attackGroups.get(key);
+      group.totalFleets += count;
+      group.weight += count;
+      group.sumX += from.x * count;
+      group.sumY += from.y * count;
+    }
+
+    const aggregated = [];
+    for (const group of attackGroups.values()) {
+      const to = positions[group.toId];
+      if (!to || group.totalFleets <= 0 || group.weight <= 0) continue;
+      const from = { x: group.sumX / group.weight, y: group.sumY / group.weight };
+      const fromId = `agg:${group.playerId}:${group.toId}`;
+      aggregated.push({
+        key: `${group.playerId}-${fromId}-${group.toId}-${group.totalFleets}`,
+        index: null,
+        playerId: group.playerId,
+        fromId,
+        toId: group.toId,
+        count: group.totalFleets,
+        from,
+        to,
+      });
+    }
+
+    return [...passthrough, ...aggregated];
+  }, [orders, phase, positions, revealedMoves, systemById]);
 
   const movePaths = useMemo(() => {
     const groups = new Map();
@@ -514,20 +783,26 @@ function Board({
       const n = sorted.length;
       for (let i = 0; i < n; i += 1) {
         const entry = sorted[i];
-        const dx = entry.to.x - entry.from.x;
-        const dy = entry.to.y - entry.from.y;
+        const trimmed = trimLineToHexEdges(entry.from, entry.to, { size: HEX_SIZE, pad: 2 });
+        const isAggregateFrom = entry.fromId?.startsWith?.("agg:");
+        const fromX = isAggregateFrom ? entry.from.x : trimmed.x1;
+        const fromY = isAggregateFrom ? entry.from.y : trimmed.y1;
+        const toX = trimmed.x2;
+        const toY = trimmed.y2;
+        const dx = toX - fromX;
+        const dy = toY - fromY;
         const len = Math.hypot(dx, dy) || 1;
         const lane = i - (n - 1) / 2;
         const laneOffset = lane * 14;
-        const mx = entry.from.x + dx * 0.5;
-        const my = entry.from.y + dy * 0.5;
+        const mx = fromX + dx * 0.5;
+        const my = fromY + dy * 0.5;
         const arch = Math.min(110, Math.max(40, len * 0.28));
         const cx = mx + laneOffset * 1.6;
         const cy = my - (arch + Math.abs(laneOffset) * 0.55);
-        const badgeX = 0.25 * entry.from.x + 0.5 * cx + 0.25 * entry.to.x;
-        const badgeY = 0.25 * entry.from.y + 0.5 * cy + 0.25 * entry.to.y;
+        const badgeX = 0.25 * fromX + 0.5 * cx + 0.25 * toX;
+        const badgeY = 0.25 * fromY + 0.5 * cy + 0.25 * toY;
         const angleDeg = (Math.atan2(dy, dx) * 180) / Math.PI;
-        const d = `M ${entry.from.x} ${entry.from.y} Q ${cx} ${cy} ${entry.to.x} ${entry.to.y}`;
+        const d = `M ${fromX} ${fromY} Q ${cx} ${cy} ${toX} ${toY}`;
         result.push({ ...entry, d, labelX: badgeX, labelY: badgeY, angleDeg, cx, cy });
       }
     }
@@ -566,20 +841,23 @@ function Board({
       const n = sorted.length;
       for (let i = 0; i < n; i += 1) {
         const entry = sorted[i];
-        const dx = entry.to.x - entry.from.x;
-        const dy = entry.to.y - entry.from.y;
+        const trimmed = trimLineToHexEdges(entry.from, entry.to, { size: HEX_SIZE, pad: 2 });
+        const from = { x: trimmed.x1, y: trimmed.y1 };
+        const to = { x: trimmed.x2, y: trimmed.y2 };
+        const dx = to.x - from.x;
+        const dy = to.y - from.y;
         const len = Math.hypot(dx, dy) || 1;
         const lane = i - (n - 1) / 2;
         const laneOffset = lane * 14;
-        const mx = entry.from.x + dx * 0.5;
-        const my = entry.from.y + dy * 0.5;
+        const mx = from.x + dx * 0.5;
+        const my = from.y + dy * 0.5;
         const arch = Math.min(110, Math.max(40, len * 0.28));
         const cx = mx + laneOffset * 1.6;
         const cy = my - (arch + Math.abs(laneOffset) * 0.55);
-        const labelX = 0.25 * entry.from.x + 0.5 * cx + 0.25 * entry.to.x;
-        const labelY = 0.25 * entry.from.y + 0.5 * cy + 0.25 * entry.to.y;
-        const d = `M ${entry.from.x} ${entry.from.y} Q ${cx} ${cy} ${entry.to.x} ${entry.to.y}`;
-        result.push({ ...entry, cx, cy, d, labelX, labelY, dx, dy, len });
+        const labelX = 0.25 * from.x + 0.5 * cx + 0.25 * to.x;
+        const labelY = 0.25 * from.y + 0.5 * cy + 0.25 * to.y;
+        const d = `M ${from.x} ${from.y} Q ${cx} ${cy} ${to.x} ${to.y}`;
+        result.push({ ...entry, from, to, cx, cy, d, labelX, labelY, dx, dy, len });
       }
     }
     return result;
@@ -606,16 +884,62 @@ function Board({
   const particles = useMemo(() => {
     if (!resolutionStartedAt || !resolutionEndsAt) return [];
     if (!revealedMoves || revealedMoves.length === 0) return [];
-    return revealedMoves
-      .map((move, index) => {
-        const from = positions[move.fromId];
-        const to = positions[move.toId];
-        if (!from || !to) return null;
-        const color = players?.[move.playerId]?.color || "#ffffff";
-        return { index, from, to, color };
-      })
-      .filter(Boolean);
-  }, [players, positions, resolutionEndsAt, resolutionStartedAt, revealedMoves]);
+
+    const transfers = [];
+    const attackGroups = new Map();
+    for (const [moveIndex, move] of revealedMoves.entries()) {
+      const from = positions[move.fromId];
+      const to = positions[move.toId];
+      if (!from || !to) continue;
+      const playerId = move.playerId || null;
+      if (!playerId) continue;
+      const count = Number(move.count) || 0;
+      if (count <= 0) continue;
+
+      const targetOwnerId = systemById[move.toId]?.ownerId || null;
+      const isAttack = targetOwnerId !== playerId;
+      if (!isAttack) {
+        const color = players?.[playerId]?.color || "#ffffff";
+        const size = Math.min(18, 8 + Math.sqrt(count) * 1.6);
+        transfers.push({ key: `t-${playerId}-${move.fromId}-${move.toId}-${moveIndex}`, from, to, color, size });
+        continue;
+      }
+
+      const key = `${playerId}:${move.toId}`;
+      if (!attackGroups.has(key)) {
+        attackGroups.set(key, {
+          playerId,
+          toId: move.toId,
+          totalFleets: 0,
+          weight: 0,
+          sumX: 0,
+          sumY: 0,
+        });
+      }
+      const group = attackGroups.get(key);
+      group.totalFleets += count;
+      group.weight += count;
+      group.sumX += from.x * count;
+      group.sumY += from.y * count;
+    }
+
+    const result = [];
+    let index = 0;
+    for (const entry of transfers) {
+      result.push({ index, ...entry });
+      index += 1;
+    }
+    for (const group of attackGroups.values()) {
+      const to = positions[group.toId];
+      if (!to || group.totalFleets <= 0 || group.weight <= 0) continue;
+      const from = { x: group.sumX / group.weight, y: group.sumY / group.weight };
+      const color = players?.[group.playerId]?.color || "#ffffff";
+      const size = Math.min(22, 8 + Math.sqrt(group.totalFleets) * 2);
+      result.push({ key: `a-${group.playerId}-${group.toId}`, index, from, to, color, size });
+      index += 1;
+    }
+    return result;
+  }, [players, positions, resolutionEndsAt, resolutionStartedAt, revealedMoves, systemById]);
 
   const outgoingByFromId = useMemo(() => {
     const map = new Map();
@@ -640,17 +964,6 @@ function Board({
     return () => cancelAnimationFrame(raf);
   }, [phase, resolutionStartedAt]);
 
-  const activeBattle = useMemo(() => {
-    if (phase !== "resolving") return null;
-    if (!resolutionStartedAt || !resolutionBattles?.length) return null;
-    const elapsed = combatNow - resolutionStartedAt;
-    return (
-      resolutionBattles.find(
-        (battle) => elapsed >= battle.startOffsetMs && elapsed < battle.startOffsetMs + battle.durationMs
-      ) || null
-    );
-  }, [combatNow, phase, resolutionBattles, resolutionStartedAt]);
-
   const battleByTargetId = useMemo(() => {
     const map = new Map();
     for (const battle of resolutionBattles || []) {
@@ -659,47 +972,68 @@ function Board({
     return map;
   }, [resolutionBattles]);
 
-  const activeBattleState = useMemo(() => {
-    if (!activeBattle || !resolutionStartedAt) return null;
-    const elapsed = combatNow - resolutionStartedAt - activeBattle.startOffsetMs;
-    const skirmishRounds = activeBattle.attackerSkirmishRounds || [];
-    const combatRounds = activeBattle.rounds || [];
-    const skirmishMs = skirmishRounds.length * 1000;
+  const battleStateByTargetId = useMemo(() => {
+    if (phase !== "resolving") return new Map();
+    if (!resolutionStartedAt || !resolutionBattles?.length) return new Map();
+    const elapsed = combatNow - resolutionStartedAt;
+    const map = new Map();
+    for (const battle of resolutionBattles) {
+      const battleElapsed = elapsed - battle.startOffsetMs;
+      if (battleElapsed < 0 || battleElapsed >= battle.durationMs) continue;
 
-    if (elapsed < skirmishMs && skirmishRounds.length) {
-      const index = Math.min(skirmishRounds.length - 1, Math.floor(elapsed / 1000));
-      const snapshot = skirmishRounds[index];
-      const leader = snapshot.reduce((best, entry) => (!best || entry.fleets > best.fleets ? entry : best), null);
-      return { mode: "skirmish", attackers: snapshot, attackerLeader: leader };
+      const skirmishRounds = battle.attackerSkirmishRounds || [];
+      const combatRounds = battle.rounds || [];
+      const skirmishMs = skirmishRounds.length * 1000;
+
+      if (battleElapsed < skirmishMs && skirmishRounds.length) {
+        const index = Math.min(skirmishRounds.length - 1, Math.floor(battleElapsed / 1000));
+        const snapshot = skirmishRounds[index];
+        const leader = snapshot.reduce((best, entry) => (!best || entry.fleets > best.fleets ? entry : best), null);
+        map.set(battle.targetId, { mode: "skirmish", attackers: snapshot, attackerLeader: leader });
+        continue;
+      }
+
+      if (combatRounds.length) {
+        const index = Math.min(combatRounds.length - 1, Math.floor((battleElapsed - skirmishMs) / 1000));
+        const snapshot = combatRounds[index];
+        map.set(battle.targetId, { mode: "combat", attacker: snapshot.attacker, defender: snapshot.defender });
+        continue;
+      }
     }
+    return map;
+  }, [combatNow, phase, resolutionBattles, resolutionStartedAt]);
 
-    if (combatRounds.length) {
-      const index = Math.min(combatRounds.length - 1, Math.floor((elapsed - skirmishMs) / 1000));
-      const snapshot = combatRounds[index];
-      return { mode: "combat", attacker: snapshot.attacker, defender: snapshot.defender };
+  const battleFxByTargetId = useMemo(() => {
+    if (phase !== "resolving") return new Map();
+    if (!resolutionStartedAt || !resolutionBattles?.length) return new Map();
+    const elapsed = combatNow - resolutionStartedAt;
+    const map = new Map();
+    for (const battle of resolutionBattles) {
+      const battleElapsed = elapsed - battle.startOffsetMs;
+      if (battleElapsed < 0) continue;
+      const tick = Math.max(0, Math.floor(battleElapsed / 1000));
+      const victoryElapsed = battleElapsed - battle.durationMs;
+      map.set(battle.targetId, { battleElapsed, tick, victoryElapsed });
     }
+    return map;
+  }, [combatNow, phase, resolutionBattles, resolutionStartedAt]);
 
-    return null;
-  }, [activeBattle, combatNow, resolutionStartedAt]);
-
-  const activeBattleFx = useMemo(() => {
-    if (!activeBattle || !resolutionStartedAt) return null;
-    const elapsed = combatNow - resolutionStartedAt - activeBattle.startOffsetMs;
-    const tick = Math.max(0, Math.floor(elapsed / 1000));
-    const victoryElapsed = elapsed - activeBattle.durationMs;
-    return { elapsed, tick, victoryElapsed };
-  }, [activeBattle, combatNow, resolutionStartedAt]);
+  const activeBattle = null;
+  const activeBattleState = null;
+  const activeBattleFx = null;
 
   const handleWheel = (event) => {
     event.preventDefault();
+    cameraTouched.current = true;
     const delta = event.deltaY > 0 ? -0.08 : 0.08;
-    setScale((prev) => Math.min(1.6, Math.max(0.6, prev + delta)));
+    setScale((prev) => Math.min(1.6, Math.max(0.35, prev + delta)));
   };
 
   const handlePointerDown = (event) => {
     if (event.target.closest) {
       if (event.target.closest("button")) return;
     }
+    cameraTouched.current = true;
     dragging.current = true;
     didDrag.current = false;
     suppressNextClick.current = false;
@@ -760,6 +1094,7 @@ function Board({
   return (
     <div
       className="board"
+      ref={boardRef}
       onWheel={handleWheel}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
@@ -784,46 +1119,50 @@ function Board({
               />
             );
           })}
-          {movePaths.map((path) => (
-            <g key={path.key}>
-              <path
-                d={path.d}
-                className={path.playerId ? "move-path-base revealed" : "move-path-base"}
-                style={
-                  path.playerId && players?.[path.playerId]?.color
-                    ? { stroke: hexToRgba(players[path.playerId].color, 0.55) || players[path.playerId].color }
-                    : undefined
-                }
-              />
-              <path
-                d={path.d}
-                className={path.playerId ? "move-path-pulse revealed" : "move-path-pulse"}
-                style={
-                  path.playerId && players?.[path.playerId]?.color
-                    ? { stroke: hexToRgba(players[path.playerId].color, 0.95) || players[path.playerId].color }
-                    : undefined
-                }
-              />
-              {phase === "planning" ? (
-                <g
-                  className="move-badge"
-                  transform={`translate(${path.labelX} ${path.labelY}) rotate(${path.angleDeg || 0})`}
-                >
-                  <polygon className="move-badge-shape" points="-20,-12 18,0 -20,12 -12,0" />
-                  <g transform={`rotate(${-(path.angleDeg || 0)})`}>
-                    <text
-                      className="move-badge-text"
-                      x="0"
-                      y="0"
-                      data-digits={String(path.count).length}
-                    >
-                      {path.count}
-                    </text>
+          {movePaths.map((path) => {
+            const battleFx = phase === "resolving" ? battleFxByTargetId.get(path.toId) : null;
+            if (battleFx && battleFx.victoryElapsed > 250) return null;
+            return (
+              <g key={path.key}>
+                <path
+                  d={path.d}
+                  className={path.playerId ? "move-path-base revealed" : "move-path-base"}
+                  style={
+                    path.playerId && players?.[path.playerId]?.color
+                      ? { stroke: hexToRgba(players[path.playerId].color, 0.55) || players[path.playerId].color }
+                      : undefined
+                  }
+                />
+                <path
+                  d={path.d}
+                  className={path.playerId ? "move-path-pulse revealed" : "move-path-pulse"}
+                  style={
+                    path.playerId && players?.[path.playerId]?.color
+                      ? { stroke: hexToRgba(players[path.playerId].color, 0.95) || players[path.playerId].color }
+                      : undefined
+                  }
+                />
+                {phase === "planning" ? (
+                  <g
+                    className="move-badge"
+                    transform={`translate(${path.labelX} ${path.labelY}) rotate(${path.angleDeg || 0})`}
+                  >
+                    <polygon className="move-badge-shape" points="-20,-12 18,0 -20,12 -12,0" />
+                    <g transform={`rotate(${-(path.angleDeg || 0)})`}>
+                      <text
+                        className="move-badge-text"
+                        x="0"
+                        y="0"
+                        data-digits={String(path.count).length}
+                      >
+                        {path.count}
+                      </text>
+                    </g>
                   </g>
-                </g>
-              ) : null}
-            </g>
-          ))}
+                ) : null}
+              </g>
+            );
+          })}
         </svg>
         {phase === "planning" && hoveredMoveIndex != null ? (
           <div className="planned-move-controls">
@@ -897,9 +1236,15 @@ function Board({
               const y = particle.from.y + (particle.to.y - particle.from.y) * t;
               return (
                 <div
-                  key={`p-${particle.index}`}
+                  key={particle.key || `p-${particle.index}`}
                   className="move-particle"
-                  style={{ left: `${x}px`, top: `${y}px`, background: particle.color }}
+                  style={{
+                    left: `${x}px`,
+                    top: `${y}px`,
+                    background: particle.color,
+                    width: `${particle.size || 10}px`,
+                    height: `${particle.size || 10}px`,
+                  }}
                 />
               );
             })
@@ -946,10 +1291,12 @@ function Board({
           const classes = ["hex", system.ownerId ? "owned" : "neutral"];
           const isNeighbor = neighborIds.has(system.id);
           const isOrigin = moveOriginId === system.id;
+          const isPowerupTarget = Boolean(powerupDraft) && Boolean(powerupTargetIds?.has?.(system.id));
           if (selectedId === system.id) classes.push("selected");
           if (isNeighbor) classes.push("neighbor");
           if (isOrigin) classes.push("origin");
           if (battleOngoing) classes.push("combat");
+          if (isPowerupTarget) classes.push("powerup-target");
           if (placementMode && phase === "planning" && fleetsRemaining > 0 && viewerId && system.ownerId === viewerId) {
             classes.push("placeable");
           }
@@ -963,13 +1310,14 @@ function Board({
                 "--accent-color": accent,
                 "--accent-glow": accentGlow,
                 "--core-color": owner?.color || "#2b344a",
+                "--powerup-color": powerupHighlightColor || "",
               }}
-              onClick={() => {
+              onClick={(event) => {
                 if (suppressNextClick.current) {
                   suppressNextClick.current = false;
                   return;
                 }
-                onSystemClick(system);
+                onSystemClick(system, event);
               }}
               role="button"
             >
@@ -1066,6 +1414,98 @@ function Board({
               );
             })
           : null}
+        {phase === "resolving"
+          ? (resolutionBattles || []).map((battle) => {
+              const state = battleStateByTargetId.get(battle.targetId);
+              if (!state) return null;
+              const pos = positions[battle.targetId];
+              if (!pos) return null;
+              const fx = battleFxByTargetId.get(battle.targetId);
+              const burstKey = `burst-${battle.targetId}-${fx?.tick || 0}`;
+              const sparksKey = `sparks-${battle.targetId}-${fx?.tick || 0}`;
+
+              return (
+                <div key={`combat-${battle.targetId}`} className="combat-overlay" style={{ left: `${pos.x}px`, top: `${pos.y}px` }}>
+                  <div className="combat-fx" aria-hidden="true">
+                    <div key={burstKey} className="combat-burst" />
+                    <div key={sparksKey} className="combat-sparks">
+                      {Array.from({ length: 14 }).map((_, index) => (
+                        <span
+                          key={`spark-${battle.targetId}-${index}`}
+                          className="combat-spark"
+                          style={{
+                            "--spark-angle": `${(index * 360) / 14}deg`,
+                            "--spark-travel": `${52 + (index % 4) * 10}px`,
+                            "--spark-delay": `${(index % 5) * 0.02}s`,
+                          }}
+                        />
+                      ))}
+                    </div>
+                    {fx && fx.victoryElapsed >= 0 && fx.victoryElapsed < 1200 ? <div className="combat-victory">ミ.</div> : null}
+                  </div>
+                  <div className="combat-ring" />
+                  <div className="combat-hud">
+                    {state.mode === "combat" ? (
+                      (() => {
+                        const attackerColor = players?.[battle.attackerId]?.color || "rgba(255,255,255,0.82)";
+                        const defenderColor = battle.defenderColorId
+                          ? players?.[battle.defenderColorId]?.color || "rgba(255,255,255,0.55)"
+                          : "rgba(255,255,255,0.35)";
+                        const attackerStart = Number(battle.attackerStartFleets ?? state.attacker) || 0;
+                        const defenderStart = Number(battle.defenderStartFleets ?? state.defender) || 0;
+                        const scale = Math.max(1, attackerStart, defenderStart);
+                        const atkRatio = clamp(Number(state.attacker) / scale, 0, 1);
+                        const defRatio = clamp(Number(state.defender) / scale, 0, 1);
+                        return (
+                          <div className="combat-bars">
+                            <div className="combat-bar-row">
+                              <span className="combat-bar-label">ATK</span>
+                              <span className="combat-bar-track" aria-hidden="true">
+                                <span className="combat-bar-fill" style={{ width: `${atkRatio * 100}%`, background: attackerColor }} />
+                              </span>
+                              <span className="combat-bar-value">{state.attacker}</span>
+                            </div>
+                            <div className="combat-bar-row">
+                              <span className="combat-bar-label">DEF</span>
+                              <span className="combat-bar-track" aria-hidden="true">
+                                <span className="combat-bar-fill" style={{ width: `${defRatio * 100}%`, background: defenderColor }} />
+                              </span>
+                              <span className="combat-bar-value">{state.defender}</span>
+                            </div>
+                          </div>
+                        );
+                      })()
+                    ) : (
+                      (() => {
+                        const sorted = (state.attackers || []).slice().sort((a, b) => b.fleets - a.fleets);
+                        const max = Math.max(1, ...sorted.map((entry) => Number(entry.fleets) || 0));
+                        return (
+                          <>
+                            <div className="combat-title">Skirmish</div>
+                            <div className="combat-bars">
+                              {sorted.slice(0, 4).map((entry) => {
+                                const color = players?.[entry.playerId]?.color || "rgba(255,255,255,0.55)";
+                                const ratio = clamp((Number(entry.fleets) || 0) / max, 0, 1);
+                                return (
+                                  <div key={entry.playerId || "neutral"} className="combat-bar-row">
+                                    <span className="combat-dot" style={{ background: color }} aria-hidden="true" />
+                                    <span className="combat-bar-track" aria-hidden="true">
+                                      <span className="combat-bar-fill" style={{ width: `${ratio * 100}%`, background: color }} />
+                                    </span>
+                                    <span className="combat-bar-value">{entry.fleets}</span>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </>
+                        );
+                      })()
+                    )}
+                  </div>
+                </div>
+              );
+            })
+          : null}
         {phase === "resolving" && activeBattle && activeBattleState ? (
           <div
             className="combat-overlay"
@@ -1093,29 +1533,60 @@ function Board({
             <div className="combat-ring" />
             <div className="combat-hud">
               {activeBattleState.mode === "combat" ? (
-                <>
-                  <div>ATK {activeBattleState.attacker}</div>
-                  <div>DEF {activeBattleState.defender}</div>
-                </>
-              ) : (
-                <>
-                  <div>Skirmish</div>
-                  <div className="combat-skim">
-                    {(activeBattleState.attackers || [])
-                      .slice()
-                      .sort((a, b) => b.fleets - a.fleets)
-                      .slice(0, 3)
-                      .map((entry) => (
-                        <span key={entry.playerId || "neutral"} className="combat-chip">
-                          <span
-                            className="combat-dot"
-                            style={{ background: players?.[entry.playerId]?.color || "rgba(255,255,255,0.5)" }}
-                          />
-                          {entry.fleets}
+                (() => {
+                  const attackerColor = players?.[activeBattle.attackerId]?.color || "rgba(255,255,255,0.82)";
+                  const defenderColor = activeBattle.defenderColorId
+                    ? players?.[activeBattle.defenderColorId]?.color || "rgba(255,255,255,0.55)"
+                    : "rgba(255,255,255,0.35)";
+                  const attackerStart = Number(activeBattle.attackerStartFleets ?? activeBattleState.attacker) || 0;
+                  const defenderStart = Number(activeBattle.defenderStartFleets ?? activeBattleState.defender) || 0;
+                  const scale = Math.max(1, attackerStart, defenderStart);
+                  const atkRatio = clamp(Number(activeBattleState.attacker) / scale, 0, 1);
+                  const defRatio = clamp(Number(activeBattleState.defender) / scale, 0, 1);
+                  return (
+                    <div className="combat-bars">
+                      <div className="combat-bar-row">
+                        <span className="combat-bar-label">ATK</span>
+                        <span className="combat-bar-track" aria-hidden="true">
+                          <span className="combat-bar-fill" style={{ width: `${atkRatio * 100}%`, background: attackerColor }} />
                         </span>
-                      ))}
-                  </div>
-                </>
+                        <span className="combat-bar-value">{activeBattleState.attacker}</span>
+                      </div>
+                      <div className="combat-bar-row">
+                        <span className="combat-bar-label">DEF</span>
+                        <span className="combat-bar-track" aria-hidden="true">
+                          <span className="combat-bar-fill" style={{ width: `${defRatio * 100}%`, background: defenderColor }} />
+                        </span>
+                        <span className="combat-bar-value">{activeBattleState.defender}</span>
+                      </div>
+                    </div>
+                  );
+                })()
+              ) : (
+                (() => {
+                  const sorted = (activeBattleState.attackers || []).slice().sort((a, b) => b.fleets - a.fleets);
+                  const max = Math.max(1, ...sorted.map((entry) => Number(entry.fleets) || 0));
+                  return (
+                    <>
+                      <div className="combat-title">Skirmish</div>
+                      <div className="combat-bars">
+                        {sorted.slice(0, 4).map((entry) => {
+                          const color = players?.[entry.playerId]?.color || "rgba(255,255,255,0.55)";
+                          const ratio = clamp((Number(entry.fleets) || 0) / max, 0, 1);
+                          return (
+                            <div key={entry.playerId || "neutral"} className="combat-bar-row">
+                              <span className="combat-dot" style={{ background: color }} aria-hidden="true" />
+                              <span className="combat-bar-track" aria-hidden="true">
+                                <span className="combat-bar-fill" style={{ width: `${ratio * 100}%`, background: color }} />
+                              </span>
+                              <span className="combat-bar-value">{entry.fleets}</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </>
+                  );
+                })()
               )}
             </div>
           </div>
@@ -1131,6 +1602,7 @@ function App() {
   const [playerId, setPlayerId] = useState(DEMO_MODE ? demoPlayerId : null);
   const [gameId, setGameId] = useState(DEMO_MODE ? demoState.id : null);
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
   const [orders, setOrders] = useState(
     DEMO_MODE ? demoState.players[demoPlayerId].orders : emptyOrders()
   );
@@ -1141,6 +1613,7 @@ function App() {
   const [timer, setTimer] = useState(0);
   const [availableGames, setAvailableGames] = useState([]);
   const lastSeenTurnRef = useRef({ turn: null, phase: null });
+  const noticeTimeoutRef = useRef(null);
 
   const me = playerId && state?.players ? state.players[playerId] : null;
   const systems = state?.systems || [];
@@ -1159,6 +1632,24 @@ function App() {
   const originTotalFleets = (originSystem?.fleets || 0) + (originSystem?.ownerId === playerId ? originPlacement : 0);
   const originAvailable = Math.max(0, originTotalFleets - queuedFromOrigin);
 
+  const flashNotice = (message) => {
+    if (noticeTimeoutRef.current) {
+      window.clearTimeout(noticeTimeoutRef.current);
+      noticeTimeoutRef.current = null;
+    }
+    setNotice(message);
+    noticeTimeoutRef.current = window.setTimeout(() => {
+      setNotice("");
+      noticeTimeoutRef.current = null;
+    }, 2400);
+  };
+
+  useEffect(() => {
+    return () => {
+      if (noticeTimeoutRef.current) window.clearTimeout(noticeTimeoutRef.current);
+    };
+  }, []);
+
   useEffect(() => {
     if (DEMO_MODE) return;
     const nextSocket = io(SERVER_URL, { transports: ["websocket"] });
@@ -1170,6 +1661,16 @@ function App() {
     if (!placementMode) return;
     if (state?.phase !== "planning" || fleetsRemaining <= 0) setPlacementMode(false);
   }, [fleetsRemaining, placementMode, state?.phase]);
+
+  useEffect(() => {
+    if (!powerupDraft) return;
+    const handleKeyDown = (event) => {
+      if (event.key !== "Escape") return;
+      setPowerupDraft("");
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [powerupDraft]);
 
   useEffect(() => {
     if (!socket || DEMO_MODE) return;
@@ -1347,9 +1848,101 @@ function App() {
     setMoveOriginId(null);
   };
 
-  const handleSystemClick = (system) => {
+  const canAttackFromOwned = useCallback((targetId) => {
+    if (!playerId) return false;
+    if ((me?.wormholeTurns || 0) > 0) return true;
+    for (const system of systems) {
+      if (system.ownerId !== playerId) continue;
+      if (links?.[system.id]?.includes(targetId)) return true;
+    }
+    return false;
+  }, [links, me?.wormholeTurns, playerId, systems]);
+
+  const isAlliedWith = useCallback(
+    (ownerId) => {
+      if (!ownerId) return false;
+      if (!playerId) return false;
+      if (ownerId === playerId) return false;
+      return Boolean(me?.alliances?.[ownerId]);
+    },
+    [me?.alliances, playerId]
+  );
+
+  const powerupTargetIds = useMemo(() => {
+    if (!playerId) return new Set();
+    if (!powerupDraft) return new Set();
+    if (state?.phase !== "planning") return new Set();
+    const powerup = POWERUPS[powerupDraft];
+    if (!powerup) return new Set();
+    if ((me?.research?.[powerup.resource] || 0) < powerup.cost) return new Set();
+
+    const targets = new Set();
+    for (const system of systems) {
+      if (powerupDraft === "defenseNet") {
+        if (system.ownerId === playerId) targets.add(system.id);
+        continue;
+      }
+
+      if (powerupDraft === "wormhole") {
+        if (system.ownerId === playerId) targets.add(system.id);
+        continue;
+      }
+
+      if (powerupDraft === "terraform") {
+        const tier = system.tier ?? 0;
+        if (system.ownerId === playerId && !system.terraformed && tier <= 1) targets.add(system.id);
+        continue;
+      }
+
+      if (powerupDraft === "stellarBomb") {
+        if (system.ownerId === playerId) continue;
+        if (system.ownerId && isAlliedWith(system.ownerId)) continue;
+        if (system.defenseNetTurns > 0) continue;
+        if (!canAttackFromOwned(system.id)) continue;
+        targets.add(system.id);
+      }
+    }
+    return targets;
+  }, [canAttackFromOwned, isAlliedWith, me?.research, playerId, powerupDraft, state?.phase, systems]);
+
+  const powerupHighlightColor = useMemo(() => {
+    if (!powerupDraft) return "";
+    if (powerupDraft === "stellarBomb") return "var(--danger)";
+    const resource = POWERUPS[powerupDraft]?.resource;
+    return resource ? RESOURCE_COLORS[resource] : "";
+  }, [powerupDraft]);
+
+  const tryQueuePowerupAt = (system) => {
+    if (!playerId) return false;
+    if (state?.phase !== "planning") return false;
+    if (!powerupDraft) return false;
+    const powerup = POWERUPS[powerupDraft];
+    if (!powerup) return false;
+    if ((me?.research?.[powerup.resource] || 0) < powerup.cost) return false;
+    if (!system?.id) return false;
+
+    if (!powerupTargetIds.has(system.id)) {
+      flashNotice("Not a valid target for that powerup.");
+      return false;
+    }
+
+    setOrders((current) => ({
+      ...current,
+      powerups: [...current.powerups, { type: powerupDraft, targetId: system.id }],
+    }));
+    setPowerupDraft("");
+    setMoveOriginId(null);
+    return true;
+  };
+
+  const handleSystemClick = (system, event) => {
     setSelectedId(system.id);
     if (!system) return;
+
+    if (powerupDraft) {
+      if (tryQueuePowerupAt(system)) return;
+      return;
+    }
 
     if (placementMode) {
       if (!playerId) return;
@@ -1359,6 +1952,7 @@ function App() {
       return;
     }
 
+    const preferDestination = Boolean(event?.shiftKey);
     const canMoveWithinOwned = (fromId, toId) => {
       if (!fromId || !toId) return false;
       if (fromId === toId) return true;
@@ -1382,8 +1976,7 @@ function App() {
       return false;
     };
 
-    const isOriginClick = system.ownerId === playerId && (!moveOriginId || moveOriginId === system.id);
-    if (isOriginClick) {
+    if (system.ownerId === playerId && (!moveOriginId || !preferDestination)) {
       setMoveOriginId(system.id);
       return;
     }
@@ -1430,6 +2023,7 @@ function App() {
     if (state?.phase !== "planning") return;
     if (fleetsRemaining <= 0) return;
     setMoveOriginId(null);
+    setPowerupDraft("");
     setPlacementMode((current) => !current);
   };
 
@@ -1466,28 +2060,8 @@ function App() {
   };
 
   const handleQueuePowerup = () => {
-    if (!powerupDraft || !selected?.id) return;
-    if (!me?.powerups?.[powerupDraft]?.unlocked) return;
-    if ((me?.powerups?.[powerupDraft]?.charges || 0) <= 0) return;
-    setOrders((current) => ({
-      ...current,
-      powerups: [...current.powerups, { type: powerupDraft, targetId: selected.id }],
-    }));
-    setPowerupDraft("");
-  };
-
-  const handleUnlockPowerup = (key) => {
-    setOrders((current) => ({
-      ...current,
-      research: [...(current.research || []), { type: "unlock", powerupKey: key }],
-    }));
-  };
-
-  const handleCraftPowerup = (key) => {
-    setOrders((current) => ({
-      ...current,
-      research: [...(current.research || []), { type: "craft", powerupKey: key }],
-    }));
+    if (!selected) return;
+    tryQueuePowerupAt(selected);
   };
 
   const handleLockIn = () => {
@@ -1562,21 +2136,21 @@ function App() {
   return (
     <div className="app">
       <div className="overlay-top">
-        <header className="top-bar">
-          <div>
-            <div className="title">StellCon</div>
-            <div className="subtitle">Simultaneous turns - Hidden orders - Combat after lock</div>
+        <div className="top-actions">
+          <div className="turn-info">
+            Turn {state.turn} of {state.config.maxTurns} - {state.phase}
           </div>
-          <div className="top-actions">
-            <div className="turn-info">
-              Turn {state.turn} of {state.config.maxTurns} - {state.phase}
-            </div>
-            <button type="button" onClick={handleLeaveGame} className="secondary">
-              Lobby
-            </button>
-          </div>
-        </header>
+          <button type="button" onClick={handleLeaveGame} className="secondary">
+            Return to Lobby
+          </button>
+        </div>
         {error ? <div className="alert">{error}</div> : null}
+        {notice ? <div className="notice">{notice}</div> : null}
+        {powerupDraft ? (
+          <div className="notice">
+            Placing {POWERUPS[powerupDraft]?.label || powerupDraft}: click a highlighted system (Esc to cancel).
+          </div>
+        ) : null}
       </div>
 
       {isComplete ? (
@@ -1621,6 +2195,9 @@ function App() {
             phase={state.phase}
             viewerId={playerId}
             wormholeTurns={me?.wormholeTurns || 0}
+            powerupDraft={powerupDraft}
+            powerupTargetIds={powerupTargetIds}
+            powerupHighlightColor={powerupHighlightColor}
             placementMode={placementMode}
             fleetsRemaining={fleetsRemaining}
             selectedId={selectedId}
@@ -1658,135 +2235,51 @@ function App() {
             </div>
           ) : null}
 
-          <div className="panel-subtitle">Placement</div>
-          <div className="placement-row placement-row-icon">
-            <button
-              type="button"
-              className={`placement-toggle ${placementMode ? "active" : ""}`}
-              onClick={handleTogglePlacementMode}
-              disabled={!playerId || state.phase !== "planning" || fleetsRemaining <= 0}
-              aria-pressed={placementMode}
-              aria-label={placementMode ? "Exit fleet placement mode" : "Enter fleet placement mode"}
-              title={placementMode ? "Placement mode active" : "Enter placement mode"}
-            >
-              <FleetIcon />
-            </button>
-            <div className="placement-meta">
-              <div className="placement-count">
-                <div>Fleets remaining</div>
-                <strong>{fleetsRemaining}</strong>
-              </div>
-              <div className="muted">
-                {placementMode ? "Placement mode: click your systems to place fleets." : "Click the fleet icon, then click your systems."}
-              </div>
-            </div>
-          </div>
-
-          <div className="panel-subtitle">Movement Orders</div>
-          <div className="move-form">
-            <div className="muted">
-              Click a friendly system, then click a glowing neighbor.
-              First click sends half (rounded down, min 1). Re-click adds +1.
-              Edit queued moves in the list below.
-            </div>
-            <div className="move-origin">
-              <div>Origin</div>
-              <div className="move-origin-row">
-                <span>{moveOriginId ? moveOriginId : "Select a friendly system"}</span>
-                {moveOriginId ? (
-                  <button type="button" onClick={handleClearOrigin}>
-                    Clear
-                  </button>
-                ) : null}
-              </div>
-              {originSystem ? (
-                <div className="muted">
-                  Available: {originAvailable} (queued {queuedFromOrigin})
-                </div>
-              ) : null}
-            </div>
-          </div>
-          <div className="order-list">
-            {orders.moves.map((move, index) => (
-              <div className="order-item" key={`${move.fromId}-${move.toId}-${index}`}>
-                <span>
-                  {move.fromId} to {move.toId} - {move.count}
-                </span>
-                <div className="order-controls">
-                  <button type="button" onClick={() => handleAdjustMove(index, -1)}>
-                    -
-                  </button>
-                  <button type="button" onClick={() => handleAdjustMove(index, 1)}>
-                    +
-                  </button>
-                  <button type="button" onClick={() => handleRemoveMove(index)}>
-                    Remove
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-
           <div className="panel-subtitle">Powerups</div>
           <div className="powerup-grid">
             {Object.values(POWERUPS).map((powerup) => {
-              const status = me?.powerups?.[powerup.key] || { unlocked: false, charges: 0 };
-              const canUse = status.unlocked && status.charges > 0;
-              const canUnlock = !status.unlocked && (me?.research?.[powerup.resource] || 0) >= powerup.unlockCost;
-              const canCraft = status.unlocked && (me?.research?.[powerup.resource] || 0) >= powerup.cost;
-              const unlockProgress = Math.min(me?.research?.[powerup.resource] || 0, powerup.unlockCost);
-              const unlockRatio = powerup.unlockCost ? unlockProgress / powerup.unlockCost : 0;
+              const points = Number(me?.research?.[powerup.resource] || 0);
+              const ratio = clamp(points / powerup.cost, 0, 1);
+              const canUse = !!playerId && state.phase === "planning" && points >= powerup.cost;
               return (
-                <div key={powerup.key} className={`powerup-row ${status.unlocked ? "" : "locked"}`}>
+                <div key={powerup.key} className="powerup-row">
                   <button
                     type="button"
-                    className={powerupDraft === powerup.key ? "active" : ""}
-                    disabled={!canUse || state.phase !== "planning"}
-                    onClick={() => setPowerupDraft(powerup.key)}
-                    title={
-                      status.unlocked
-                        ? `Charges: ${status.charges}`
-                        : `Unlock for ${powerup.unlockCost} ${resourceLabels[powerup.resource]}`
-                    }
+                    className={`${powerupDraft === powerup.key ? "active" : ""} ${canUse ? "available" : ""}`}
+                    disabled={!playerId || state.phase !== "planning"}
+                    onClick={() => {
+                      setPlacementMode(false);
+                      setMoveOriginId(null);
+                      setPowerupDraft((current) => (current === powerup.key ? "" : powerup.key));
+                    }}
+                    aria-label={`${powerup.label}: ${points}/${powerup.cost} ${resourceLabels[powerup.resource]}`}
+                    title={`${powerup.label}: ${points}/${powerup.cost} ${resourceLabels[powerup.resource]}`}
+                    style={{ "--res-color": RESOURCE_COLORS[powerup.resource] || "rgba(255,255,255,0.6)" }}
                   >
                     <span className="powerup-label">{powerup.label}</span>
-                    <span className="cost">{status.unlocked ? `${status.charges} charges` : "Locked"}</span>
-                    {!status.unlocked ? (
-                      <span className="powerup-progress" aria-label={`${powerup.label} unlock progress`}>
-                        <span className="powerup-progress-track" aria-hidden="true">
-                          <span className="powerup-progress-fill" style={{ width: `${unlockRatio * 100}%` }} />
-                        </span>
-                        <span className="powerup-progress-label">
-                          {unlockProgress}/{powerup.unlockCost}
-                        </span>
+                    <span className="cost">{canUse ? "Ready" : `${powerup.cost} ${resourceLabels[powerup.resource]}`}</span>
+                    <span className="powerup-progress" aria-label={`${powerup.label} resource progress`}>
+                      <span className="powerup-progress-track" aria-hidden="true">
+                        <span className="powerup-progress-fill" style={{ width: `${ratio * 100}%` }} />
                       </span>
-                    ) : null}
+                      <span className="powerup-progress-label">
+                        {Math.min(points, powerup.cost)}/{powerup.cost}
+                      </span>
+                    </span>
                   </button>
-                  <div className="powerup-actions">
-                    {!status.unlocked ? (
-                      <button
-                        type="button"
-                        disabled={!canUnlock || state.phase !== "planning"}
-                        onClick={() => handleUnlockPowerup(powerup.key)}
-                      >
-                        Unlock
-                      </button>
-                    ) : (
-                      <button
-                        type="button"
-                        disabled={!canCraft || state.phase !== "planning"}
-                        onClick={() => handleCraftPowerup(powerup.key)}
-                      >
-                        Craft
-                      </button>
-                    )}
-                  </div>
                 </div>
               );
             })}
           </div>
-          <button type="button" className="queue" onClick={handleQueuePowerup}>
-            Queue Powerup on Selected
+          {powerupDraft ? <div className="muted">{powerupHelp[powerupDraft] || "Click a highlighted system to place."}</div> : null}
+          <button
+            type="button"
+            className="queue"
+            onClick={handleQueuePowerup}
+            disabled={!powerupDraft || !selected?.id || !powerupTargetIds.has(selected.id)}
+            title={!powerupDraft ? "Select a powerup first" : "Place on the currently selected system"}
+          >
+            Place Powerup on Selected
           </button>
 
           <div className="panel-subtitle">Diplomacy</div>
@@ -1824,50 +2317,6 @@ function App() {
               <FleetIcon />
               <span className="bottom-placement-count">{fleetsRemaining}</span>
             </button>
-
-            <div className="bottom-powerups" aria-label="Powerups">
-              {Object.values(POWERUPS).map((powerup) => {
-                const status = me?.powerups?.[powerup.key] || { unlocked: false, charges: 0 };
-                const points = Number(me?.research?.[powerup.resource] || 0);
-                const ratio = clamp(points / powerup.unlockCost, 0, 1);
-                const canQueueUnlock = !!playerId && state.phase === "planning" && !status.unlocked && points >= powerup.unlockCost;
-                const canSelect = !!playerId && state.phase === "planning" && status.unlocked && (status.charges || 0) > 0;
-                const isSelected = powerupDraft === powerup.key;
-                return (
-                  <button
-                    key={powerup.key}
-                    type="button"
-                    className={`bottom-powerup ${isSelected ? "active" : ""} ${status.unlocked ? "unlocked" : "locked"}`}
-                    disabled={!playerId || state.phase !== "planning"}
-                    onClick={() => {
-                      if (canQueueUnlock) {
-                        handleUnlockPowerup(powerup.key);
-                        return;
-                      }
-                      if (!canSelect) return;
-                      setPowerupDraft((current) => (current === powerup.key ? "" : powerup.key));
-                    }}
-                    aria-label={`${powerup.label} (${status.unlocked ? `${status.charges} charges` : `${points}/${powerup.unlockCost} ${resourceLabels[powerup.resource]}`})`}
-                    title={
-                      status.unlocked
-                        ? `${powerup.label} (${status.charges} charges)`
-                        : `${powerup.label}: ${points}/${powerup.unlockCost} ${resourceLabels[powerup.resource]}`
-                    }
-                    style={{
-                      "--res-color": RESOURCE_COLORS[powerup.resource] || "rgba(255,255,255,0.6)",
-                      "--fill": `${ratio * 100}%`,
-                    }}
-                  >
-                    <span className="bottom-powerup-icon" aria-hidden="true">
-                      <PowerupIcon type={powerup.key} />
-                    </span>
-                    <span className="bottom-powerup-track" aria-hidden="true">
-                      <span className="bottom-powerup-fill" />
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
           </div>
 
           <div className="bottom-main">

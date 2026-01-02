@@ -9,9 +9,11 @@ import {
   createGame,
   finalizeResolution,
   lockIn,
+  PLAYER_COLORS,
   redactGameState,
   setAlliance,
   startGame,
+  startPlanningPhase,
   submitOrders,
 } from "@stellcon/shared";
 
@@ -35,6 +37,19 @@ const sessions = new Map();
 const pendingAlliances = new Map();
 const resolveTimers = new Map();
 const BASE_RESOLVE_DELAY_MS = 1600;
+
+function logServerError(label, error, extras = {}) {
+  const message = error instanceof Error ? error.stack || error.message : String(error);
+  console.error(`[server:${label}] ${message}`, extras);
+}
+
+process.on("uncaughtException", (error) => {
+  logServerError("uncaughtException", error);
+});
+
+process.on("unhandledRejection", (reason) => {
+  logServerError("unhandledRejection", reason);
+});
 
 function normalizePlayerName(value) {
   return String(value || "")
@@ -93,14 +108,20 @@ function listPublicGames() {
   return [...games.values()]
     .filter((game) => !game.config?.isPrivate)
     .filter((game) => game.phase !== "complete")
-    .map((game) => ({
-      gameId: game.id,
-      players: Object.keys(game.players).length,
-      maxPlayers: game.config.maxPlayers,
-      mapSize: game.config.mapSize,
-      turn: game.turn,
-      phase: game.phase,
-    }));
+    .map((game) => {
+      const usedColors = new Set(
+        Object.values(game.players || {}).map((player) => String(player.color || "").toLowerCase())
+      );
+      return {
+        gameId: game.id,
+        players: Object.keys(game.players).length,
+        maxPlayers: game.config.maxPlayers,
+        availableColors: PLAYER_COLORS.filter((value) => !usedColors.has(String(value).toLowerCase())),
+        mapSize: game.config.mapSize,
+        turn: game.turn,
+        phase: game.phase,
+      };
+    });
 }
 
 function emitGamesList() {
@@ -118,10 +139,27 @@ function scheduleFinalize(game) {
   delay = Math.max(1200, delay);
   game.resolutionEndsAt = Date.now() + delay;
   const timer = setTimeout(() => {
-    resolveTimers.delete(game.id);
-    finalizeResolution(game);
-    emitState(game.id);
-    emitGamesList();
+    try {
+      resolveTimers.delete(game.id);
+      finalizeResolution(game);
+      emitState(game.id);
+      emitGamesList();
+    } catch (error) {
+      logServerError("finalizeResolution", error, { gameId: game.id });
+      resolveTimers.delete(game.id);
+      try {
+        delete game.revealedMoves;
+        delete game.resolutionStartedAt;
+        delete game.resolutionEndsAt;
+        delete game.resolutionBattles;
+        delete game.resolutionPlan;
+        startPlanningPhase(game);
+        emitState(game.id);
+        emitGamesList();
+      } catch (recoverError) {
+        logServerError("recoverFinalize", recoverError, { gameId: game.id });
+      }
+    }
   }, delay);
   resolveTimers.set(game.id, timer);
 }
@@ -137,22 +175,27 @@ function maybeStartGame(game) {
 function forceResolveIfExpired() {
   const now = Date.now();
   for (const game of games.values()) {
-    if (game.phase !== "planning") continue;
-    if (!game.turnEndsAt || game.turnEndsAt > now) continue;
-    for (const player of Object.values(game.players)) {
-      player.locked = true;
+    try {
+      if (game.phase !== "planning") continue;
+      if (!game.turnEndsAt || game.turnEndsAt > now) continue;
+      for (const player of Object.values(game.players)) {
+        player.locked = true;
+      }
+      beginResolution(game);
+      emitState(game.id);
+      scheduleFinalize(game);
+    } catch (error) {
+      logServerError("forceResolveIfExpired", error, { gameId: game.id });
     }
-    beginResolution(game);
-    emitState(game.id);
-    scheduleFinalize(game);
   }
 }
 
 setInterval(forceResolveIfExpired, 1000);
 
 io.on("connection", (socket) => {
-  socket.on("createGame", ({ name, config, color }, callback) => {
+  socket.on("createGame", (payload = {}, callback) => {
     try {
+      const { name, config, color } = payload || {};
       const gameId = nanoid(6).toUpperCase();
       const game = createGame({ id: gameId, config, seed: `stellcon-${gameId}` });
       game.started = false;
@@ -174,8 +217,9 @@ io.on("connection", (socket) => {
     }
   });
 
-  socket.on("joinGame", ({ gameId, name, color }, callback) => {
+  socket.on("joinGame", (payload = {}, callback) => {
     try {
+      const { gameId, name, color } = payload || {};
       const game = ensureGame(gameId);
       if (Object.keys(game.players).length >= game.config.maxPlayers) {
         throw new Error("Game is full");
@@ -201,8 +245,9 @@ io.on("connection", (socket) => {
     callback?.({ games: list });
   });
 
-  socket.on("watchGame", ({ gameId }, callback) => {
+  socket.on("watchGame", (payload = {}, callback) => {
     try {
+      const { gameId } = payload || {};
       ensureGame(gameId);
       trackSession(socket.id, { gameId, playerId: null });
       socket.join(`game:${gameId}`);
@@ -213,8 +258,9 @@ io.on("connection", (socket) => {
     }
   });
 
-  socket.on("rejoinGame", ({ gameId, playerId }, callback) => {
+  socket.on("rejoinGame", (payload = {}, callback) => {
     try {
+      const { gameId, playerId } = payload || {};
       const game = ensureGame(gameId);
       const player = game.players[playerId];
       if (!player) throw new Error("Player not found");
@@ -230,8 +276,9 @@ io.on("connection", (socket) => {
     }
   });
 
-  socket.on("updateOrders", ({ orders }, callback) => {
+  socket.on("updateOrders", (payload = {}, callback) => {
     try {
+      const { orders } = payload || {};
       const session = getSession(socket.id);
       if (!session) throw new Error("Not in game");
       if (!session.playerId) throw new Error("Spectators cannot submit orders");
@@ -262,8 +309,9 @@ io.on("connection", (socket) => {
     }
   });
 
-  socket.on("requestAlliance", ({ targetId }, callback) => {
+  socket.on("requestAlliance", (payload = {}, callback) => {
     try {
+      const { targetId } = payload || {};
       const session = getSession(socket.id);
       if (!session) throw new Error("Not in game");
       if (!session.playerId) throw new Error("Spectators cannot request alliances");
@@ -282,8 +330,9 @@ io.on("connection", (socket) => {
     }
   });
 
-  socket.on("acceptAlliance", ({ fromId }, callback) => {
+  socket.on("acceptAlliance", (payload = {}, callback) => {
     try {
+      const { fromId } = payload || {};
       const session = getSession(socket.id);
       if (!session) throw new Error("Not in game");
       if (!session.playerId) throw new Error("Spectators cannot accept alliances");

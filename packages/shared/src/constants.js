@@ -26,10 +26,10 @@ export const PLAYER_COLORS = [
 ];
 
 export const MAP_SIZES = {
-  small: { width: 12, height: 8 },
-  medium: { width: 18, height: 12 },
-  large: { width: 24, height: 16 },
-  massive: { width: 36, height: 24 },
+  small: { width: 12, height: 4 },
+  medium: { width: 18, height: 6 },
+  large: { width: 24, height: 8 },
+  massive: { width: 36, height: 12 },
 };
 
 export const DEFAULT_CONFIG = {

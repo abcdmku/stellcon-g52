@@ -101,12 +101,19 @@ function ensureSystem(game, { q, r, tier, rand }) {
 }
 
 function pickPlayerColor(game, requested) {
-  const allowed = PLAYER_COLORS.map((value) => value.toLowerCase());
+  const allowedLower = PLAYER_COLORS.map((value) => value.toLowerCase());
   const used = new Set(Object.values(game.players).map((player) => String(player.color || "").toLowerCase()));
   const desired = String(requested || "").toLowerCase();
-  if (desired && allowed.includes(desired) && !used.has(desired)) return requested;
-  const next = allowed.find((value) => !used.has(value));
-  if (next) return PLAYER_COLORS[allowed.indexOf(next)];
+
+  if (desired) {
+    const desiredIndex = allowedLower.indexOf(desired);
+    if (desiredIndex < 0) throw new Error("Invalid color");
+    if (used.has(desired)) throw new Error("Color already taken");
+    return PLAYER_COLORS[desiredIndex];
+  }
+
+  const next = allowedLower.find((value) => !used.has(value));
+  if (next) return PLAYER_COLORS[allowedLower.indexOf(next)];
   return PLAYER_COLORS[Object.keys(game.players).length % PLAYER_COLORS.length];
 }
 
@@ -201,7 +208,7 @@ export function startPlanningPhase(game) {
     player.income = income.totals;
     player.fleetsToPlace = income.fleets;
     for (const key of RESOURCE_TYPES) {
-      player.research[key] += income.surplus[key];
+      player.research[key] = Math.min(20, (player.research[key] || 0) + income.surplus[key]);
     }
     player.orders = blankOrders();
     player.locked = false;
@@ -214,11 +221,19 @@ export function submitOrders(game, playerId, orders) {
   if (game.phase !== PHASES.planning) return;
   if (player.locked) return;
 
+  const placements =
+    orders && typeof orders.placements === "object" && orders.placements !== null && !Array.isArray(orders.placements)
+      ? orders.placements
+      : {};
+  const moves = Array.isArray(orders?.moves) ? orders.moves : [];
+  const powerups = Array.isArray(orders?.powerups) ? orders.powerups : [];
+  const research = Array.isArray(orders?.research) ? orders.research : [];
+
   player.orders = {
-    placements: orders.placements || {},
-    moves: orders.moves || [],
-    powerups: orders.powerups || [],
-    research: orders.research || [],
+    placements,
+    moves,
+    powerups,
+    research,
   };
 }
 
@@ -483,6 +498,7 @@ function planResolution(game) {
       defenderId,
       defenderColorId,
       attackerId: attackerWinner.playerId,
+      attackerStartFleets: attackerWinner.fleets,
       attackerSkirmishRounds,
       rounds: combatRounds,
       winnerId: target.ownerId,
@@ -500,43 +516,23 @@ function planResolution(game) {
     });
   }
 
-  let offsetMs = Math.max(0, RESOLUTION_TRAVEL_MS);
+  const startOffsetMs = Math.max(0, RESOLUTION_TRAVEL_MS);
+  let maxDurationMs = 1000;
   const plannedBattles = battles.map((battle) => {
     const skirmishMs = (battle.attackerSkirmishRounds?.length || 0) * 1000;
     const combatMs = (battle.rounds?.length || 0) * 1000;
     const durationMs = Math.max(1000, skirmishMs + combatMs);
-    const planned = { ...battle, startOffsetMs: offsetMs, durationMs };
-    offsetMs += durationMs + 400;
-    return planned;
+    if (durationMs > maxDurationMs) maxDurationMs = durationMs;
+    return { ...battle, startOffsetMs, durationMs };
   });
 
   game.resolutionBattles = plannedBattles;
-  game.resolutionEndsAt = game.resolutionStartedAt + Math.max(1200, offsetMs);
+  game.resolutionEndsAt = game.resolutionStartedAt + Math.max(1200, startOffsetMs + maxDurationMs);
   game.resolutionPlan = { systemUpdates: updates };
 }
 
 function applyResearchActions(game) {
-  for (const player of Object.values(game.players)) {
-    for (const action of player.orders.research || []) {
-      const powerup = POWERUPS[action.powerupKey];
-      if (!powerup) continue;
-
-      if (action.type === "unlock") {
-        if (player.powerups[action.powerupKey]?.unlocked) continue;
-        if ((player.research[powerup.resource] || 0) < powerup.unlockCost) continue;
-        player.research[powerup.resource] -= powerup.unlockCost;
-        player.powerups[action.powerupKey] = { unlocked: true, charges: 1 };
-      }
-
-      if (action.type === "craft") {
-        if (!player.powerups[action.powerupKey]?.unlocked) continue;
-        if ((player.research[powerup.resource] || 0) < powerup.cost) continue;
-        player.research[powerup.resource] -= powerup.cost;
-        const current = player.powerups[action.powerupKey]?.charges || 0;
-        player.powerups[action.powerupKey].charges = Math.min(5, current + 1);
-      }
-    }
-  }
+  // Powerups are now used directly via resource thresholds (no unlock/craft queue).
 }
 
 export function resolveTurn(game) {
@@ -560,49 +556,96 @@ function applyPlacements(game) {
 }
 
 function applyPowerups(game) {
-  for (const player of Object.values(game.players)) {
-    for (const action of player.orders.powerups) {
-      const powerup = POWERUPS[action.type];
-      if (!powerup) continue;
-      if (!player.powerups[action.type]?.unlocked) continue;
-      if ((player.powerups[action.type]?.charges || 0) <= 0) continue;
-      const target = game.systems.find((system) => system.id === action.targetId);
-      if (!target) continue;
+  const players = Object.values(game.players);
+  const actionsByPlayer = new Map(players.map((player) => [player.id, player.orders.powerups || []]));
 
-      if (action.type === "stellarBomb") {
-        if (target.ownerId && target.ownerId !== player.id && !isAllied(game, player.id, target.ownerId)) {
-          if (target.defenseNetTurns > 0) {
-            target.defenseNetTurns = 0;
-          } else {
-            target.fleets = Math.max(0, Math.floor(target.fleets / 2));
-          }
-          player.powerups[action.type].charges -= 1;
-        }
-      }
+  const canAttackFromOwned = (player, target) => {
+    if (!player || !target) return false;
+    if ((player.wormholeTurns || 0) > 0) return true;
+    for (const system of game.systems) {
+      if (system.ownerId !== player.id) continue;
+      if ((game.links[system.id] || []).includes(target.id)) return true;
+    }
+    return false;
+  };
 
-      if (action.type === "terraform") {
-        if (target.ownerId === player.id && !target.terraformed) {
-          for (const key of RESOURCE_TYPES) {
-            target.resources[key] += 2;
-          }
-          target.terraformed = true;
-          player.powerups[action.type].charges -= 1;
-        }
-      }
+  const canSpend = (player, powerup) => {
+    if (!player || !powerup) return false;
+    return (player.research?.[powerup.resource] || 0) >= powerup.cost;
+  };
 
-      if (action.type === "defenseNet") {
-        if (target.ownerId === player.id) {
-          target.defenseNetTurns = powerup.duration;
-          player.powerups[action.type].charges -= 1;
-        }
-      }
+  const spend = (player, powerup) => {
+    if (!canSpend(player, powerup)) return false;
+    player.research[powerup.resource] -= powerup.cost;
+    return true;
+  };
 
-      if (action.type === "wormhole") {
-        if (target.ownerId === player.id) {
-          player.wormholeTurns = powerup.duration;
-          player.powerups[action.type].charges -= 1;
+  const getTarget = (action) => game.systems.find((system) => system.id === action.targetId);
+
+  const applySupportPowerups = (player, action) => {
+    const powerup = POWERUPS[action.type];
+    if (!powerup) return;
+    if (!canSpend(player, powerup)) return;
+    const target = getTarget(action);
+    if (!target) return;
+
+    if (action.type === "terraform") {
+      const tier = target.tier ?? 0;
+      if (target.ownerId === player.id && !target.terraformed && tier <= 1) {
+        for (const key of RESOURCE_TYPES) {
+          target.resources[key] += 2;
         }
+        target.tier = Math.min(2, tier + 1);
+        target.terraformed = true;
+        spend(player, powerup);
       }
+      return;
+    }
+
+    if (action.type === "defenseNet") {
+      if (target.ownerId === player.id) {
+        target.defenseNetTurns = powerup.duration;
+        spend(player, powerup);
+      }
+      return;
+    }
+
+    if (action.type === "wormhole") {
+      if (target.ownerId === player.id) {
+        player.wormholeTurns = powerup.duration;
+        spend(player, powerup);
+      }
+    }
+  };
+
+  const applyAttackPowerups = (player, action) => {
+    const powerup = POWERUPS[action.type];
+    if (!powerup) return;
+    if (!canSpend(player, powerup)) return;
+    const target = getTarget(action);
+    if (!target) return;
+
+    if (action.type === "stellarBomb") {
+      if (target.ownerId === player.id) return;
+      if (target.ownerId && isAllied(game, player.id, target.ownerId)) return;
+      if (!canAttackFromOwned(player, target)) return;
+      if (target.defenseNetTurns > 0) return;
+      target.fleets = Math.max(0, Math.floor((target.fleets || 0) / 2));
+      spend(player, powerup);
+    }
+  };
+
+  for (const player of players) {
+    for (const action of actionsByPlayer.get(player.id) || []) {
+      if (action.type === "stellarBomb") continue;
+      applySupportPowerups(player, action);
+    }
+  }
+
+  for (const player of players) {
+    for (const action of actionsByPlayer.get(player.id) || []) {
+      if (action.type !== "stellarBomb") continue;
+      applyAttackPowerups(player, action);
     }
   }
 }
