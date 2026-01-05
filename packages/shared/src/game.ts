@@ -1,9 +1,22 @@
-﻿import { DEFAULT_CONFIG, HOMEWORLD_FLEETS, MAP_SIZES, PHASES, PLAYER_COLORS, POWERUPS, RESOURCE_TYPES } from "./constants.js";
-import { RESOLUTION_TRAVEL_MS } from "./constants.js";
+import { DEFAULT_CONFIG, HOMEWORLD_FLEETS, MAP_SIZES, PHASES, PLAYER_COLORS, POWERUPS, RESOURCE_TYPES, RESOLUTION_TRAVEL_MS } from "./constants.js";
 import { generateGalaxy, pickHomeworlds } from "./map.js";
 import { clamp, mulberry32, rollDie, seedToInt } from "./utils.js";
+import type {
+  GameConfig,
+  GameState,
+  Orders,
+  PlayerPowerups,
+  PlayerState,
+  ResourceMap,
+  SystemState,
+  SystemUpdate,
+  RevealedMove,
+  ResolutionBattle,
+} from "./types.js";
 
-function blankOrders() {
+type Rand = () => number;
+
+function blankOrders(): Orders {
   return { placements: {}, moves: [], powerups: [], research: [] };
 }
 
@@ -11,13 +24,19 @@ function now() {
   return Date.now();
 }
 
-export function createGame({ id, config = {}, seed = "stellcon" } = {}) {
-  const merged = { ...DEFAULT_CONFIG, ...config };
+export function createGame(
+  { id, config = {}, seed = "stellcon" }: { id?: string; config?: Partial<GameConfig>; seed?: string } = {}
+): GameState {
+  const gameId =
+    typeof id === "string" && id.length > 0
+      ? id
+      : (globalThis.crypto?.randomUUID?.() ?? String(Math.random()).slice(2));
+  const merged: GameConfig = { ...DEFAULT_CONFIG, ...(config || {}) };
   const size = MAP_SIZES[merged.mapSize] || MAP_SIZES.medium;
   const { systems, links } = generateGalaxy({ seed, width: size.width, height: size.height });
 
   return {
-    id,
+    id: gameId,
     seed,
     config: merged,
     createdAt: now(),
@@ -26,8 +45,8 @@ export function createGame({ id, config = {}, seed = "stellcon" } = {}) {
     turnEndsAt: null,
     systems,
     links,
-    players: {},
-    log: [],
+    players: {} as Record<string, PlayerState>,
+    log: [] as unknown[],
     winnerId: null,
   };
 }
@@ -41,43 +60,43 @@ const NEIGHBOR_OFFSETS = [
   { q: 0, r: 1 },
 ];
 
-function systemId(q, r) {
+function systemId(q: number, r: number) {
   return `s${q}_${r}`;
 }
 
-function addLink(links, fromId, toId) {
+function addLink(links: GameState["links"], fromId: string, toId: string) {
   links[fromId] ||= [];
   links[toId] ||= [];
   if (!links[fromId].includes(toId)) links[fromId].push(toId);
   if (!links[toId].includes(fromId)) links[toId].push(fromId);
 }
 
-function rollTier2Resources(rand) {
-  const resources = {};
+function rollTier2Resources(rand: Rand): ResourceMap {
+  const resources = {} as ResourceMap;
   for (const key of RESOURCE_TYPES) {
     resources[key] = 8 + Math.floor(rand() * 5);
   }
   return resources;
 }
 
-function rollTier0Resources(rand) {
-  const resources = {};
+function rollTier0Resources(rand: Rand): ResourceMap {
+  const resources = {} as ResourceMap;
   for (const key of RESOURCE_TYPES) {
     resources[key] = 1 + Math.floor(rand() * 4);
   }
   return resources;
 }
 
-function rollTier0Fleets(rand) {
+function rollTier0Fleets(rand: Rand) {
   return Math.floor(rand() * 4);
 }
 
-function ensureSystem(game, { q, r, tier, rand }) {
+function ensureSystem(game: GameState, { q, r, tier, rand }: { q: number; r: number; tier: number; rand: Rand }): SystemState {
   const id = systemId(q, r);
   const existing = game.systems.find((system) => system.id === id);
   if (existing) return existing;
 
-  const system = {
+  const system: SystemState = {
     id,
     q,
     r,
@@ -100,7 +119,7 @@ function ensureSystem(game, { q, r, tier, rand }) {
   return system;
 }
 
-function pickPlayerColor(game, requested) {
+function pickPlayerColor(game: GameState, requested?: string) {
   const allowedLower = PLAYER_COLORS.map((value) => value.toLowerCase());
   const used = new Set(Object.values(game.players).map((player) => String(player.color || "").toLowerCase()));
   const desired = String(requested || "").toLowerCase();
@@ -117,20 +136,30 @@ function pickPlayerColor(game, requested) {
   return PLAYER_COLORS[Object.keys(game.players).length % PLAYER_COLORS.length];
 }
 
-export function addPlayer(game, { id, name, color: requestedColor } = {}) {
+export function addPlayer(
+  game: GameState,
+  { id, name, color: requestedColor }: { id?: string; name?: string; color?: string } = {}
+): PlayerState {
   if (Object.keys(game.players).length >= game.config.maxPlayers) {
     throw new Error("Game is full");
   }
 
+  const playerId =
+    typeof id === "string" && id.length > 0
+      ? id
+      : (globalThis.crypto?.randomUUID?.() ?? String(Math.random()).slice(2));
   const color = pickPlayerColor(game, requestedColor);
-  game.players[id] = {
-    id,
-    name,
+  const powerups = Object.fromEntries(
+    (Object.keys(POWERUPS) as Array<keyof typeof POWERUPS>).map((key) => [key, { unlocked: false, charges: 0 }])
+  ) as PlayerPowerups;
+  game.players[playerId] = {
+    id: playerId,
+    name: String(name || ""),
     color,
     homeSystemId: null,
     income: initResources(0),
     research: initResources(0),
-    powerups: Object.fromEntries(Object.keys(POWERUPS).map((key) => [key, { unlocked: false, charges: 0 }])),
+    powerups,
     fleetsToPlace: 0,
     wormholeTurns: 0,
     alliances: {},
@@ -139,10 +168,10 @@ export function addPlayer(game, { id, name, color: requestedColor } = {}) {
     orders: blankOrders(),
   };
 
-  return game.players[id];
+  return game.players[playerId];
 }
 
-export function assignHomeworlds(game) {
+export function assignHomeworlds(game: GameState) {
   const rand = mulberry32(seedToInt(game.seed));
   const players = Object.values(game.players);
   const tier2Candidates = game.systems.filter((system) => (system.tier ?? 0) >= 2);
@@ -170,19 +199,18 @@ export function assignHomeworlds(game) {
   });
 }
 
-export function startGame(game) {
+export function startGame(game: GameState) {
   assignHomeworlds(game);
   startPlanningPhase(game);
 }
 
-export function initResources(value) {
-  return RESOURCE_TYPES.reduce((acc, key) => {
-    acc[key] = value;
-    return acc;
-  }, {});
+export function initResources(value: number): ResourceMap {
+  const resources = {} as ResourceMap;
+  for (const key of RESOURCE_TYPES) resources[key] = value;
+  return resources;
 }
 
-export function computeIncome(game, playerId) {
+export function computeIncome(game: GameState, playerId: string): { totals: ResourceMap; fleets: number; surplus: ResourceMap } {
   const totals = initResources(0);
   let fleets = 0;
   for (const system of game.systems) {
@@ -193,14 +221,12 @@ export function computeIncome(game, playerId) {
     fleets += Math.min(...RESOURCE_TYPES.map((key) => system.resources[key] || 0));
   }
   const min = Math.min(...RESOURCE_TYPES.map((key) => totals[key]));
-  const surplus = RESOURCE_TYPES.reduce((acc, key) => {
-    acc[key] = Math.max(0, totals[key] - min);
-    return acc;
-  }, {});
+  const surplus = initResources(0);
+  for (const key of RESOURCE_TYPES) surplus[key] = Math.max(0, totals[key] - min);
   return { totals, fleets, surplus };
 }
 
-export function startPlanningPhase(game) {
+export function startPlanningPhase(game: GameState) {
   game.phase = PHASES.planning;
   game.turnEndsAt = now() + game.config.turnSeconds * 1000;
   for (const player of Object.values(game.players)) {
@@ -215,7 +241,7 @@ export function startPlanningPhase(game) {
   }
 }
 
-export function submitOrders(game, playerId, orders) {
+export function submitOrders(game: GameState, playerId: string, orders: Partial<Orders>) {
   const player = game.players[playerId];
   if (!player) return;
   if (game.phase !== PHASES.planning) return;
@@ -237,7 +263,7 @@ export function submitOrders(game, playerId, orders) {
   };
 }
 
-export function lockIn(game, playerId) {
+export function lockIn(game: GameState, playerId: string) {
   const player = game.players[playerId];
   if (!player) return false;
   if (game.phase !== PHASES.planning) return false;
@@ -245,8 +271,8 @@ export function lockIn(game, playerId) {
   return Object.values(game.players).every((p) => p.locked);
 }
 
-function buildRevealedMoves(game) {
-  const revealed = [];
+function buildRevealedMoves(game: GameState): RevealedMove[] {
+  const revealed: RevealedMove[] = [];
   for (const player of Object.values(game.players)) {
     for (const move of player.orders.moves || []) {
       revealed.push({
@@ -260,7 +286,7 @@ function buildRevealedMoves(game) {
   return revealed;
 }
 
-export function beginResolution(game) {
+export function beginResolution(game: GameState) {
   if (game.phase !== PHASES.planning) return;
   game.phase = PHASES.resolving;
   game.turnEndsAt = null;
@@ -273,8 +299,9 @@ export function beginResolution(game) {
   planResolution(game);
 }
 
-export function finalizeResolution(game) {
-  if (game.phase !== PHASES.resolving) return;
+export function finalizeResolution(game: GameState) {
+  const currentPhase = game.phase;
+  if (currentPhase !== PHASES.resolving) return;
   if (game.resolutionPlan?.systemUpdates) {
     applySystemUpdates(game, game.resolutionPlan.systemUpdates);
   } else {
@@ -296,15 +323,15 @@ export function finalizeResolution(game) {
   }
 }
 
-function cloneSystems(systems) {
+function cloneSystems(systems: SystemState[]): SystemState[] {
   return systems.map((system) => ({
     ...system,
     resources: { ...system.resources },
   }));
 }
 
-function applySystemUpdates(game, updates) {
-  const map = new Map(game.systems.map((system) => [system.id, system]));
+function applySystemUpdates(game: GameState, updates: SystemUpdate[]) {
+  const map = new Map<string, SystemState>(game.systems.map((system) => [system.id, system]));
   for (const update of updates) {
     const system = map.get(update.id);
     if (!system) continue;
@@ -314,7 +341,7 @@ function applySystemUpdates(game, updates) {
   }
 }
 
-function coinFlipSurvivors(count, rand) {
+function coinFlipSurvivors(count: number, rand: Rand) {
   let survivors = 0;
   for (let i = 0; i < count; i += 1) {
     if (rand() >= 0.5) survivors += 1;
@@ -322,10 +349,10 @@ function coinFlipSurvivors(count, rand) {
   return survivors;
 }
 
-function resolveCoinFlipCombat(attackerStart, defenderStart, rand) {
+function resolveCoinFlipCombat(attackerStart: number, defenderStart: number, rand: Rand) {
   let attacker = attackerStart;
   let defender = defenderStart;
-  const rounds = [];
+  const rounds: Array<{ attacker: number; defender: number }> = [];
 
   while (attacker > 0 && defender > 0) {
     const attackerNext = coinFlipSurvivors(attacker, rand);
@@ -349,9 +376,9 @@ function resolveCoinFlipCombat(attackerStart, defenderStart, rand) {
   return { rounds, attackerRemaining: attacker, defenderRemaining: defender };
 }
 
-function resolveMultiAttacker(attackerEntries, rand) {
+function resolveMultiAttacker(attackerEntries: Array<{ playerId: string; fleets: number }>, rand: Rand) {
   const attackers = attackerEntries.map((entry) => ({ ...entry }));
-  const rounds = [];
+  const rounds: Array<Array<{ playerId: string; fleets: number }>> = [];
   while (attackers.filter((a) => a.fleets > 0).length > 1) {
     let anyLoss = false;
     for (const attacker of attackers) {
@@ -375,21 +402,27 @@ function resolveMultiAttacker(attackerEntries, rand) {
   return { rounds, winner };
 }
 
-function planResolution(game) {
+function planResolution(game: GameState) {
   const rand = mulberry32(seedToInt(`${game.seed}-${game.turn}`));
   const systems = cloneSystems(game.systems);
-  const systemMap = new Map(systems.map((system) => [system.id, system]));
-  const playerMap = new Map(Object.values(game.players).map((player) => [player.id, { ...player }]));
-  const incoming = new Map();
-  const updates = [];
-  const battles = [];
+  const systemMap = new Map<string, SystemState>(systems.map((system) => [system.id, system]));
+  const playerMap = new Map<string, PlayerState>(Object.values(game.players).map((player) => [player.id, { ...player }]));
+  const incoming = new Map<string, Record<string, number>>();
+  const updates: SystemUpdate[] = [];
+  const battles: Array<
+    Omit<ResolutionBattle, "startOffsetMs" | "durationMs"> & {
+      startOffsetMs?: number;
+      durationMs?: number;
+    }
+  > = [];
 
-  const canMoveWithinOwned = (fromId, toId, playerId) => {
+  const canMoveWithinOwned = (fromId: string, toId: string, playerId: string) => {
     if (fromId === toId) return true;
     const visited = new Set([fromId]);
     const queue = [fromId];
     while (queue.length) {
       const current = queue.shift();
+      if (!current) continue;
       const neighbors = game.links[current] || [];
       for (const nextId of neighbors) {
         if (visited.has(nextId)) continue;
@@ -436,7 +469,7 @@ function planResolution(game) {
       }
 
       if (!incoming.has(to.id)) incoming.set(to.id, {});
-      const bucket = incoming.get(to.id);
+      const bucket = incoming.get(to.id)!;
       bucket[player.id] = (bucket[player.id] || 0) + amount;
     }
   }
@@ -451,7 +484,7 @@ function planResolution(game) {
       .filter((entry) => entry.fleets > 0);
 
     let attackerWinner = attackerEntries[0] || { playerId: null, fleets: 0 };
-    let attackerSkirmishRounds = [];
+    let attackerSkirmishRounds: Array<Array<{ playerId: string; fleets: number }>> = [];
     if (attackerEntries.length > 1) {
       const multi = resolveMultiAttacker(attackerEntries, rand);
       attackerWinner = multi.winner;
@@ -531,7 +564,7 @@ function planResolution(game) {
   game.resolutionPlan = { systemUpdates: updates };
 }
 
-function applyResearchActions(game) {
+function applyResearchActions(game: GameState) {
   // Powerups are now used directly via resource thresholds (no unlock/craft queue).
 }
 
@@ -540,7 +573,7 @@ export function resolveTurn(game) {
   finalizeResolution(game);
 }
 
-function applyPlacements(game) {
+function applyPlacements(game: GameState) {
   for (const player of Object.values(game.players)) {
     let remaining = player.fleetsToPlace;
     for (const [systemId, amount] of Object.entries(player.orders.placements)) {
@@ -555,11 +588,11 @@ function applyPlacements(game) {
   }
 }
 
-function applyPowerups(game) {
+function applyPowerups(game: GameState) {
   const players = Object.values(game.players);
   const actionsByPlayer = new Map(players.map((player) => [player.id, player.orders.powerups || []]));
 
-  const canAttackFromOwned = (player, target) => {
+  const canAttackFromOwned = (player: PlayerState | undefined, target: SystemState | undefined) => {
     if (!player || !target) return false;
     if ((player.wormholeTurns || 0) > 0) return true;
     for (const system of game.systems) {
@@ -650,7 +683,7 @@ function applyPowerups(game) {
   }
 }
 
-function resolveMovements(game, rand) {
+function resolveMovements(game: GameState, rand: Rand) {
   const systemById = new Map(game.systems.map((system) => [system.id, system]));
   const canMoveWithinOwned = (fromId, toId, playerId) => {
     if (fromId === toId) return true;
@@ -752,7 +785,7 @@ function resolveMovements(game, rand) {
   }
 }
 
-function tickDurations(game) {
+function tickDurations(game: GameState) {
   for (const system of game.systems) {
     if (system.defenseNetTurns > 0) {
       system.defenseNetTurns = Math.max(0, system.defenseNetTurns - 1);
@@ -773,7 +806,7 @@ function tickDurations(game) {
   }
 }
 
-function checkVictory(game) {
+function checkVictory(game: GameState) {
   if (game.turn >= game.config.maxTurns) {
     game.phase = PHASES.complete;
     game.winnerId = determineLeader(game);
@@ -787,7 +820,7 @@ function checkVictory(game) {
   }
 }
 
-function determineLeader(game) {
+function determineLeader(game: GameState) {
   const scores = new Map();
   for (const system of game.systems) {
     if (!system.ownerId) continue;
@@ -802,7 +835,7 @@ function determineLeader(game) {
   return best ? best.playerId : null;
 }
 
-export function setAlliance(game, fromId, toId) {
+export function setAlliance(game: GameState, fromId: string, toId: string) {
   const from = game.players[fromId];
   const to = game.players[toId];
   if (!from || !to) return;
@@ -810,13 +843,13 @@ export function setAlliance(game, fromId, toId) {
   to.alliances[fromId] = 3;
 }
 
-export function isAllied(game, playerId, otherId) {
+export function isAllied(game: GameState, playerId: string | null, otherId: string | null) {
   if (!playerId || !otherId || playerId === otherId) return false;
   const player = game.players[playerId];
   return Boolean(player?.alliances[otherId]);
 }
 
-export function redactGameState(game, viewerId) {
+export function redactGameState(game: GameState, viewerId: string | null): GameState {
   const reveal = game.phase === PHASES.resolving ? game.revealedMoves : undefined;
   const players = Object.fromEntries(
     Object.entries(game.players).map(([id, player]) => {
@@ -829,7 +862,7 @@ export function redactGameState(game, viewerId) {
         },
       ];
     })
-  );
+  ) as Record<string, PlayerState>;
   return {
     id: game.id,
     seed: game.seed,

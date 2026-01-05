@@ -1,4 +1,6 @@
-﻿export const RESOURCE_TYPES = ["fusion", "terrain", "metal", "crystal"];
+import type { GameConfig, MapSize, Phase, PowerupKey, ResourceType } from "./types.js";
+
+export const RESOURCE_TYPES = ["fusion", "terrain", "metal", "crystal"] as const satisfies readonly ResourceType[];
 
 export const RESOURCE_COLORS = {
   fusion: "#d05cff",
@@ -12,7 +14,10 @@ export const POWERUPS = {
   terraform: { key: "terraform", label: "Terraform", unlockCost: 20, cost: 20, resource: "terrain", duration: 0 },
   defenseNet: { key: "defenseNet", label: "Defense Net", unlockCost: 20, cost: 20, resource: "crystal", duration: 3 },
   wormhole: { key: "wormhole", label: "Wormhole", unlockCost: 20, cost: 20, resource: "fusion", duration: 3 },
-};
+} as const satisfies Record<
+  PowerupKey,
+  { key: PowerupKey; label: string; unlockCost: number; cost: number; resource: ResourceType; duration: number }
+>;
 
 export const PLAYER_COLORS = [
   "#ff5f6d", // hot red
@@ -23,14 +28,14 @@ export const PLAYER_COLORS = [
   "#4a7dff", // blue
   "#b06cff", // violet
   "#ff5fe7", // magenta
-];
+] as const;
 
 export const MAP_SIZES = {
   small: { width: 12, height: 4 },
   medium: { width: 18, height: 6 },
   large: { width: 24, height: 8 },
   massive: { width: 36, height: 12 },
-};
+} as const satisfies Record<MapSize, { width: number; height: number }>;
 
 export const DEFAULT_CONFIG = {
   maxTurns: 20,
@@ -38,13 +43,13 @@ export const DEFAULT_CONFIG = {
   maxPlayers: 2,
   turnSeconds: 90,
   isPrivate: false,
-};
+} as const satisfies GameConfig;
 
 export const PHASES = {
   planning: "planning",
   resolving: "resolving",
   complete: "complete",
-};
+} as const satisfies Record<Phase, Phase>;
 
 export const HOMEWORLD_FLEETS = 10;
 

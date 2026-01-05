@@ -1,5 +1,11 @@
-﻿import { RESOURCE_TYPES } from "./constants.js";
+import { RESOURCE_TYPES } from "./constants.js";
 import { mulberry32, seedToInt, pickRandom, axialDistance } from "./utils.js";
+import type { ResourceMap, SystemState } from "./types.js";
+
+type Coord = { q: number; r: number };
+type Links = Record<string, string[]>;
+type SystemMap = Record<string, SystemState>;
+type Rand = () => number;
 
 const NEIGHBOR_OFFSETS = [
   { q: 1, r: 0 },
@@ -10,8 +16,8 @@ const NEIGHBOR_OFFSETS = [
   { q: 0, r: 1 },
 ];
 
-function rectCoords(width, height) {
-  const coords = [];
+function rectCoords(width: number, height: number): Coord[] {
+  const coords: Coord[] = [];
   const qShift = Math.floor(width / 2);
   const rShift = Math.floor(height / 2);
 
@@ -32,14 +38,23 @@ function systemId(q, r) {
   return `s${q}_${r}`;
 }
 
-function coordKey(q, r) {
+function coordKey(q: number, r: number) {
   return `${q},${r}`;
 }
 
-function generateRandomCoords({ allCoords, targetCount, rand }) {
-  const picked = new Map();
-  const valid = new Set(allCoords.map((coord) => coordKey(coord.q, coord.r)));
+function generateRandomCoords({
+  allCoords,
+  targetCount,
+  rand,
+}: {
+  allCoords: Coord[];
+  targetCount: number;
+  rand: Rand;
+}): Coord[] {
+  const picked = new Map<string, Coord>();
+  const valid = new Set<string>(allCoords.map((coord) => coordKey(coord.q, coord.r)));
   const start = allCoords[Math.floor(rand() * allCoords.length)];
+  if (!start) return [];
   picked.set(coordKey(start.q, start.r), start);
 
   const spawnChance = 0.18;
@@ -72,15 +87,15 @@ function generateRandomCoords({ allCoords, targetCount, rand }) {
   return [...picked.values()];
 }
 
-function connectedComponents(systemMap, links) {
-  const visited = new Set();
-  const components = [];
+function connectedComponents(systemMap: SystemMap, links: Links) {
+  const visited = new Set<string>();
+  const components: string[][] = [];
 
   for (const systemId of Object.keys(systemMap)) {
     if (visited.has(systemId)) continue;
     const queue = [systemId];
     visited.add(systemId);
-    const component = [];
+    const component: string[] = [];
 
     while (queue.length) {
       const current = queue.shift();
@@ -105,8 +120,8 @@ function addLane(links, fromId, toId) {
   if (!links[toId].includes(fromId)) links[toId].push(fromId);
 }
 
-function removeSoloSystems(systems, links) {
-  const keep = new Set();
+function removeSoloSystems(systems: SystemState[], links: Links): { systems: SystemState[]; links: Links } {
+  const keep = new Set<string>();
   for (const [id, neighbors] of Object.entries(links)) {
     if ((neighbors || []).length > 0) keep.add(id);
   }
@@ -114,7 +129,7 @@ function removeSoloSystems(systems, links) {
   if (keep.size === systems.length) return { systems, links };
 
   const nextSystems = systems.filter((system) => keep.has(system.id));
-  const nextLinks = {};
+  const nextLinks: Links = {};
   for (const [id, neighbors] of Object.entries(links)) {
     if (!keep.has(id)) continue;
     nextLinks[id] = (neighbors || []).filter((neighborId) => keep.has(neighborId));
@@ -123,8 +138,8 @@ function removeSoloSystems(systems, links) {
   return { systems: nextSystems, links: nextLinks };
 }
 
-function bestLaneBetween(systemMap, fromIds, toIds) {
-  let best = null;
+function bestLaneBetween(systemMap: SystemMap, fromIds: string[], toIds: string[]) {
+  let best: { fromId: string; toId: string; dist: number } | null = null;
   for (const fromId of fromIds) {
     const from = systemMap[fromId];
     if (!from) continue;
@@ -138,13 +153,18 @@ function bestLaneBetween(systemMap, fromIds, toIds) {
   return best;
 }
 
-export function generateGalaxy({ seed = "stellcon", width = 18, height = 12, density = 0.55 } = {}) {
+export function generateGalaxy({
+  seed = "stellcon",
+  width = 18,
+  height = 12,
+  density = 0.55,
+}: { seed?: string; width?: number; height?: number; density?: number } = {}): { systems: SystemState[]; links: Links } {
   const rand = mulberry32(seedToInt(seed));
   const allCoords = rectCoords(width, height);
   const targetCount = Math.max(24, Math.min(allCoords.length, Math.floor(allCoords.length * density)));
   const coords = generateRandomCoords({ allCoords, targetCount, rand });
 
-  let systems = coords.map(({ q, r }) => {
+  let systems: SystemState[] = coords.map(({ q, r }) => {
     const roll = rand();
     const tier = roll > 0.95 ? 2 : roll > 0.83 ? 1 : 0;
     const ranges = [
@@ -156,7 +176,7 @@ export function generateGalaxy({ seed = "stellcon", width = 18, height = 12, den
     const resources = RESOURCE_TYPES.reduce((acc, key) => {
       acc[key] = range.min + Math.floor(rand() * (range.max - range.min + 1));
       return acc;
-    }, {});
+    }, {} as ResourceMap);
     const fleetRanges = [
       { min: 0, max: 3 },
       { min: 2, max: 5 },
@@ -181,20 +201,20 @@ export function generateGalaxy({ seed = "stellcon", width = 18, height = 12, den
   let systemMap = systems.reduce((acc, system) => {
     acc[system.id] = system;
     return acc;
-  }, {});
+  }, {} as SystemMap);
 
   let links = systems.reduce((acc, system) => {
     const neighbors = NEIGHBOR_OFFSETS.map((offset) => systemId(system.q + offset.q, system.r + offset.r))
       .filter((neighborId) => systemMap[neighborId]);
     acc[system.id] = neighbors;
     return acc;
-  }, {});
+  }, {} as Links);
 
   ({ systems, links } = removeSoloSystems(systems, links));
   systemMap = systems.reduce((acc, system) => {
     acc[system.id] = system;
     return acc;
-  }, {});
+  }, {} as SystemMap);
 
   const components = connectedComponents(systemMap, links);
   if (components.length > 1) {
@@ -224,8 +244,8 @@ export function generateGalaxy({ seed = "stellcon", width = 18, height = 12, den
       return ra;
     };
 
-    const connectOnceByRootPair = new Set();
-    const connectComponents = (fromIndex, toIndex) => {
+    const connectOnceByRootPair = new Set<string>();
+    const connectComponents = (fromIndex: number, toIndex: number) => {
       const fromRoot = findRoot(fromIndex);
       const toRoot = findRoot(toIndex);
       if (fromRoot === toRoot) return false;
@@ -263,7 +283,7 @@ export function generateGalaxy({ seed = "stellcon", width = 18, height = 12, den
 
       if (remaining.length === 0) break;
 
-      let best = null;
+      let best: { fromId: string; toId: string; dist: number; fromIndex: number; toIndex: number } | null = null;
       for (const fromIndex of remaining) {
         for (const toIndex of connected) {
           const candidate = bestLaneBetween(systemMap, components[fromIndex], components[toIndex]);
@@ -280,8 +300,8 @@ export function generateGalaxy({ seed = "stellcon", width = 18, height = 12, den
   return { systems, links };
 }
 
-export function pickHomeworlds(systems, count, rand) {
-  const selected = [];
+export function pickHomeworlds(systems: SystemState[], count: number, rand: Rand): SystemState[] {
+  const selected: SystemState[] = [];
   const pool = [...systems];
   if (pool.length === 0) return selected;
 
