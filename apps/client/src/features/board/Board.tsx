@@ -6,6 +6,19 @@ import { hexToRgba } from "../../shared/lib/color";
 import { axialDistanceCoords, axialToPixel, trimLineToHexEdges } from "../../shared/lib/hex";
 
 const HEX_SIZE = 56;
+const MOVE_LINE_START_PAD = 2;
+const MOVE_LINE_END_PAD = 18;
+const MOVE_LINE_START_TOWARD_EDGE = 0.5;
+const MOVE_BADGE_SCALE = 0.78;
+const MOVE_BADGE_POINTS = "-16,-11 16,0 -16,11 -10,0";
+const MOVE_VERTICAL_RATIO = 0.35;
+
+function computeMoveCurveControlPoint(dx: number, len: number, mx: number, my: number, arch: number) {
+  if (len <= 0.001) return { cx: mx, cy: my };
+  const verticalish = Math.abs(dx) / len < MOVE_VERTICAL_RATIO;
+  if (verticalish) return { cx: mx, cy: my };
+  return { cx: mx, cy: my - arch };
+}
 const resourceLabels = {
   fusion: "Fusion",
   terrain: "Terrain",
@@ -374,25 +387,28 @@ const Board = memo(function Board({
           (a, b) =>
             Math.atan2(a.to.y - a.from.y, a.to.x - a.from.x) - Math.atan2(b.to.y - b.from.y, b.to.x - b.from.x)
         );
-      const n = sorted.length;
-      for (let i = 0; i < n; i += 1) {
-        const entry = sorted[i];
-        const trimmed = trimLineToHexEdges(entry.from, entry.to, { size: HEX_SIZE, pad: 2 });
+      for (const entry of sorted) {
+        const trimmed = trimLineToHexEdges(entry.from, entry.to, {
+          size: HEX_SIZE,
+          padStart: MOVE_LINE_START_PAD,
+          padEnd: MOVE_LINE_END_PAD,
+        });
         const isAggregateFrom = entry.fromId?.startsWith?.("agg:");
-        const fromX = isAggregateFrom ? entry.from.x : trimmed.x1;
-        const fromY = isAggregateFrom ? entry.from.y : trimmed.y1;
+        const fromX = isAggregateFrom
+          ? entry.from.x
+          : entry.from.x + (trimmed.x1 - entry.from.x) * MOVE_LINE_START_TOWARD_EDGE;
+        const fromY = isAggregateFrom
+          ? entry.from.y
+          : entry.from.y + (trimmed.y1 - entry.from.y) * MOVE_LINE_START_TOWARD_EDGE;
         const toX = trimmed.x2;
         const toY = trimmed.y2;
         const dx = toX - fromX;
         const dy = toY - fromY;
         const len = Math.hypot(dx, dy) || 1;
-        const lane = i - (n - 1) / 2;
-        const laneOffset = lane * 14;
         const mx = fromX + dx * 0.5;
         const my = fromY + dy * 0.5;
         const arch = Math.min(110, Math.max(40, len * 0.28));
-        const cx = mx + laneOffset * 1.6;
-        const cy = my - (arch + Math.abs(laneOffset) * 0.55);
+        const { cx, cy } = computeMoveCurveControlPoint(dx, len, mx, my, arch);
         const badgeX = 0.25 * fromX + 0.5 * cx + 0.25 * toX;
         const badgeY = 0.25 * fromY + 0.5 * cy + 0.25 * toY;
         const angleDeg = (Math.atan2(dy, dx) * 180) / Math.PI;
@@ -432,22 +448,24 @@ const Board = memo(function Board({
           (a, b) =>
             Math.atan2(a.to.y - a.from.y, a.to.x - a.from.x) - Math.atan2(b.to.y - b.from.y, b.to.x - b.from.x)
         );
-      const n = sorted.length;
-      for (let i = 0; i < n; i += 1) {
-        const entry = sorted[i];
-        const trimmed = trimLineToHexEdges(entry.from, entry.to, { size: HEX_SIZE, pad: 2 });
-        const from = { x: trimmed.x1, y: trimmed.y1 };
+      for (const entry of sorted) {
+        const trimmed = trimLineToHexEdges(entry.from, entry.to, {
+          size: HEX_SIZE,
+          padStart: MOVE_LINE_START_PAD,
+          padEnd: MOVE_LINE_END_PAD,
+        });
+        const from = {
+          x: entry.from.x + (trimmed.x1 - entry.from.x) * MOVE_LINE_START_TOWARD_EDGE,
+          y: entry.from.y + (trimmed.y1 - entry.from.y) * MOVE_LINE_START_TOWARD_EDGE,
+        };
         const to = { x: trimmed.x2, y: trimmed.y2 };
         const dx = to.x - from.x;
         const dy = to.y - from.y;
         const len = Math.hypot(dx, dy) || 1;
-        const lane = i - (n - 1) / 2;
-        const laneOffset = lane * 14;
         const mx = from.x + dx * 0.5;
         const my = from.y + dy * 0.5;
         const arch = Math.min(110, Math.max(40, len * 0.28));
-        const cx = mx + laneOffset * 1.6;
-        const cy = my - (arch + Math.abs(laneOffset) * 0.55);
+        const { cx, cy } = computeMoveCurveControlPoint(dx, len, mx, my, arch);
         const labelX = 0.25 * from.x + 0.5 * cx + 0.25 * to.x;
         const labelY = 0.25 * from.y + 0.5 * cy + 0.25 * to.y;
         const d = `M ${from.x} ${from.y} Q ${cx} ${cy} ${to.x} ${to.y}`;
@@ -770,16 +788,18 @@ const Board = memo(function Board({
                     className="move-badge"
                     transform={`translate(${path.labelX} ${path.labelY}) rotate(${path.angleDeg || 0})`}
                   >
-                    <polygon className="move-badge-shape" points="-20,-12 18,0 -20,12 -12,0" />
-                    <g transform={`rotate(${-(path.angleDeg || 0)})`}>
-                      <text
-                        className="move-badge-text"
-                        x="0"
-                        y="0"
-                        data-digits={String(path.count).length}
-                      >
-                        {path.count}
-                      </text>
+                    <g transform={`scale(${MOVE_BADGE_SCALE})`}>
+                      <polygon className="move-badge-shape" points={MOVE_BADGE_POINTS} />
+                      <g transform={`rotate(${-(path.angleDeg || 0)})`}>
+                        <text
+                          className="move-badge-text"
+                          x="0"
+                          y="0"
+                          data-digits={String(path.count).length}
+                        >
+                          {path.count}
+                        </text>
+                      </g>
                     </g>
                   </g>
                 ) : null}

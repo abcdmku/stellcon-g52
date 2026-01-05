@@ -18,7 +18,21 @@ export function hexRadiusAtAngle(angleRad: number, size: number) {
 
 type Point = { x: number; y: number };
 
-export function trimLineToHexEdges(from: Point, to: Point, { size, pad = 4 }: { size: number; pad?: number }) {
+export function trimLineToHexEdges(
+  from: Point,
+  to: Point,
+  {
+    size,
+    pad = 4,
+    padStart,
+    padEnd,
+  }: {
+    size: number;
+    pad?: number;
+    padStart?: number;
+    padEnd?: number;
+  }
+) {
   const dx = to.x - from.x;
   const dy = to.y - from.y;
   const len = Math.hypot(dx, dy);
@@ -27,8 +41,10 @@ export function trimLineToHexEdges(from: Point, to: Point, { size, pad = 4 }: { 
   const ux = dx / len;
   const uy = dy / len;
   const angle = Math.atan2(dy, dx);
-  const startCut = Math.max(0, hexRadiusAtAngle(angle, size) - pad);
-  const endCut = Math.max(0, hexRadiusAtAngle(angle + Math.PI, size) - pad);
+  const startPad = padStart ?? pad;
+  const endPad = padEnd ?? pad;
+  const startCut = Math.max(0, hexRadiusAtAngle(angle, size) - startPad);
+  const endCut = Math.max(0, hexRadiusAtAngle(angle + Math.PI, size) - endPad);
   const maxCut = Math.max(0, len / 2 - 0.5);
   const a = Math.min(startCut, maxCut);
   const b = Math.min(endCut, maxCut);
