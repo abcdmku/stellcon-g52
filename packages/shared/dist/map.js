@@ -29,10 +29,12 @@ function systemId(q, r) {
 function coordKey(q, r) {
     return `${q},${r}`;
 }
-function generateRandomCoords({ allCoords, targetCount, rand }) {
+function generateRandomCoords({ allCoords, targetCount, rand, }) {
     const picked = new Map();
     const valid = new Set(allCoords.map((coord) => coordKey(coord.q, coord.r)));
     const start = allCoords[Math.floor(rand() * allCoords.length)];
+    if (!start)
+        return [];
     picked.set(coordKey(start.q, start.r), start);
     const spawnChance = 0.18;
     const walkExtraChance = 0.26;
@@ -125,7 +127,7 @@ function bestLaneBetween(systemMap, fromIds, toIds) {
     }
     return best;
 }
-export function generateGalaxy({ seed = "stellcon", width = 18, height = 12, density = 0.55 } = {}) {
+export function generateGalaxy({ seed = "stellcon", width = 18, height = 12, density = 0.55, } = {}) {
     const rand = mulberry32(seedToInt(seed));
     const allCoords = rectCoords(width, height);
     const targetCount = Math.max(24, Math.min(allCoords.length, Math.floor(allCoords.length * density)));
