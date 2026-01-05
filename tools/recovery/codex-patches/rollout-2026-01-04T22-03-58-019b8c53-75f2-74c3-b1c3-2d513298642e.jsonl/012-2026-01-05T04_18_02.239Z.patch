@@ -1,0 +1,46 @@
+*** Begin Patch
+*** Update File: apps/client/src/App.tsx
+@@
+           <div className="game-code">Game Code: {gameId}</div>
+           <div className="player-list">
+             {commanderPlayers.map((player) => (
+-              <PlayerCard key={player.id} player={player} highlight={player.id === playerId} />
++              <PlayerCard
++                key={player.id}
++                player={player}
++                highlight={player.id === playerId}
++                diplomacy={(() => {
++                  if (!playerId) return null;
++                  if (player.id === playerId) return null;
++
++                  const alliedTurns = Number(me?.alliances?.[player.id] || 0);
++                  if (alliedTurns > 0) {
++                    return {
++                      label: `Allied (${alliedTurns})`,
++                      disabled: true,
++                      title: "Alliance lasts 3 turns.",
++                      onClick: () => {},
++                    };
++                  }
++
++                  if (pendingAllianceFromIds[player.id]) {
++                    return {
++                      label: "Accept",
++                      disabled: false,
++                      title: "Accept alliance (lasts 3 turns).",
++                      onClick: () => handleAcceptAlliance(player.id),
++                    };
++                  }
++
++                  return {
++                    label: "Diplomacy",
++                    disabled: false,
++                    title: "Request alliance (lasts 3 turns).",
++                    onClick: () => handleAlliance(player.id),
++                  };
++                })()}
++              />
+             ))}
+           </div>
+         </aside>
+*** End Patch

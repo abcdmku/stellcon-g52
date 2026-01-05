@@ -1,0 +1,27 @@
+*** Begin Patch
+*** Update File: apps/client/src/App.tsx
+@@
+   const componentById = useMemo(() => buildConnectedComponentIndex(systems.map((system) => system.id), links), [links, systems]);
+-  const selected = systems.find((system) => system.id === selectedId) ?? systems[0] ?? null;
+   const totalPlaced = Object.values(orders.placements || {}).reduce((sum, value) => sum + Number(value || 0), 0);
+   const fleetsRemaining = Math.max(0, (me?.fleetsToPlace || 0) - totalPlaced);
+   const turnSeconds = Number(state?.config?.turnSeconds || 0);
+   const planningRatio = turnSeconds > 0 && state?.phase === "planning" ? clamp(timer / turnSeconds, 0, 1) : 0;
+-  const originSystem = systems.find((system) => system.id === moveOriginId);
+-  const queuedFromOrigin = orders.moves.reduce(
+-    (sum, move) => (move.fromId === moveOriginId ? sum + Number(move.count || 0) : sum),
+-    0
+-  );
+-  const originPlacement = moveOriginId ? Number(orders.placements?.[moveOriginId] || 0) : 0;
+-  const originTotalFleets = (originSystem?.fleets || 0) + (originSystem?.ownerId === playerId ? originPlacement : 0);
+-  const originAvailable = Math.max(0, originTotalFleets - queuedFromOrigin);
+@@
+-  const handleClearOrigin = () => {
+-    setMoveOriginId(null);
+-  };
+-
+   const handleTogglePlacementMode = () => {
+     if (!playerId) return;
+     if (state?.phase !== "planning") return;
+     if (fleetsRemaining <= 0) return;
+*** End Patch

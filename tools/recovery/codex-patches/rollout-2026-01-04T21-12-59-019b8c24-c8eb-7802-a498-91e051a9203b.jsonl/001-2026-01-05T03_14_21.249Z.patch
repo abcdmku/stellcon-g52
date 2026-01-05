@@ -1,0 +1,16 @@
+*** Begin Patch
+*** Update File: apps/client/src/App.css
+@@
+ .powerup-progress-fill {
++  display: block;
+   height: 100%;
+   background: linear-gradient(
+     90deg,
+     color-mix(in srgb, var(--res-color) 85%, rgba(255, 255, 255, 0.2)),
+     var(--res-color)
+   );
+   border-radius: 999px;
++  box-shadow: 0 0 14px color-mix(in srgb, var(--res-color) 55%, transparent);
++  transition: width 0.2s ease-out;
+ }
+*** End Patch

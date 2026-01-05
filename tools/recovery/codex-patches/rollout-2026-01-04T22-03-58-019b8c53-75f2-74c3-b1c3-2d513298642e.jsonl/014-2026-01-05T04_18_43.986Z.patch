@@ -1,0 +1,38 @@
+*** Begin Patch
+*** Update File: apps/client/src/App.css
+@@
+ .player-head {
+   display: flex;
+   gap: 10px;
+   align-items: center;
+   margin-bottom: 8px;
+ }
+ 
++.player-head-main {
++  flex: 1;
++  min-width: 0;
++}
++
++.player-diplomacy {
++  border: 1px solid rgba(255, 255, 255, 0.14);
++  background: rgba(255, 255, 255, 0.06);
++  color: rgba(255, 255, 255, 0.9);
++  border-radius: 999px;
++  padding: 6px 10px;
++  font-size: 11px;
++  letter-spacing: 0.8px;
++  text-transform: uppercase;
++  cursor: pointer;
++}
++
++.player-diplomacy:disabled {
++  opacity: 0.6;
++  cursor: not-allowed;
++}
++
+ .player-color {
+   width: 12px;
+   height: 30px;
+   border-radius: 6px;
+ }
+*** End Patch

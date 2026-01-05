@@ -1,6 +1,6 @@
 import { RESOURCE_TYPES } from "@stellcon/shared";
 
-export default function PlayerCard({ player, highlight }) {
+export default function PlayerCard({ player, highlight, diplomacy }) {
   const fleets = player.fleetsToPlace ?? 0;
   const owned = player.systemCount ?? 0;
 
@@ -8,12 +8,23 @@ export default function PlayerCard({ player, highlight }) {
     <div className={`player-card ${highlight ? "active" : ""}`}>
       <div className="player-head">
         <span className="player-color" style={{ background: player.color }} />
-        <div>
+        <div className="player-head-main">
           <div className="player-name">{player.name}</div>
           <div className="player-meta">
             {owned} systems - {fleets} fleets
           </div>
         </div>
+        {diplomacy ? (
+          <button
+            type="button"
+            className="player-diplomacy"
+            onClick={diplomacy.onClick}
+            disabled={diplomacy.disabled}
+            title={diplomacy.title}
+          >
+            {diplomacy.label}
+          </button>
+        ) : null}
       </div>
       <div className="player-bars">
         {RESOURCE_TYPES.map((key) => (

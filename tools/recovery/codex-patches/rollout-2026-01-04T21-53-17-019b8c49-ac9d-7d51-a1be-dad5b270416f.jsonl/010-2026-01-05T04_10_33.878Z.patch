@@ -1,0 +1,18 @@
+*** Begin Patch
+*** Update File: apps/client/src/App.tsx
+@@
+           <Board
+             systems={systems}
+             links={links}
+             players={state.players}
+             orders={orders}
+@@
+             fleetsRemaining={fleetsRemaining}
+             selectedId={selectedId}
+             moveOriginId={moveOriginId}
+             onSystemClick={handleSystemClick}
++            onBackgroundClick={() => setSelectedId(null)}
+             onMoveAdjust={handleAdjustMove}
+             onMoveCancel={handleRemoveMove}
+           />
+*** End Patch

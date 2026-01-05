@@ -1,0 +1,51 @@
+*** Begin Patch
+*** Update File: apps/client/src/features/board/useBoardLayout.ts
+@@
+ import { useMemo } from "react";
+ import { axialToPixel } from "../../shared/lib/hex";
+-import type { SystemState } from "@stellcon/shared";
++import { buildConnectedComponentIndex, inSameConnectedComponent, type SystemState } from "@stellcon/shared";
+@@
+   const neighborIds = useMemo(() => {
+     if (!moveOriginId || !viewerId) return new Set<string>();
+-    const systemMap = new Map(systems.map((system) => [system.id, system]));
+-    const origin = systemMap.get(moveOriginId);
+-    if (!origin || origin.ownerId !== viewerId) return new Set<string>();
++    const origin = systems.find((system) => system.id === moveOriginId);
++    if (!origin || origin.ownerId !== viewerId) return new Set<string>();
+ 
+     const reachable = new Set<string>();
+     if (wormholeTurns > 0) {
+       for (const system of systems) {
+         if (system.id !== moveOriginId) reachable.add(system.id);
+       }
+     } else {
+-      const visited = new Set([moveOriginId]);
+-      const queue = [moveOriginId];
+-      while (queue.length) {
+-        const current = queue.shift();
+-        for (const nextId of links?.[current] || []) {
+-          if (visited.has(nextId)) continue;
+-          const next = systemMap.get(nextId);
+-          if (!next) continue;
+-          if (next.ownerId !== viewerId) continue;
+-          visited.add(nextId);
+-          if (nextId !== moveOriginId) reachable.add(nextId);
+-          queue.push(nextId);
+-        }
+-      }
++      const componentById = buildConnectedComponentIndex(
++        systems.map((system) => system.id),
++        links
++      );
++      for (const system of systems) {
++        if (system.id === moveOriginId) continue;
++        if (system.ownerId !== viewerId) continue;
++        if (inSameConnectedComponent(componentById, moveOriginId, system.id)) reachable.add(system.id);
++      }
+     }
+ 
+     for (const nextId of links?.[moveOriginId] || []) reachable.add(nextId);
+     return reachable;
+   }, [links, moveOriginId, systems, viewerId, wormholeTurns]);
+*** End Patch

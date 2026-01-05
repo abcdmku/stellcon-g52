@@ -1,0 +1,9 @@
+*** Begin Patch
+*** Update File: apps/client/src/App.tsx
+@@
+   const handleAllianceRequest = useCallback((fromId: string) => {
+-    setError(`Alliance request from ${fromId}. Check diplomacy panel.`);
++    setPendingAllianceFromIds((current) => ({ ...current, [fromId]: true }));
++    setError(`Alliance request from ${fromId}. Use Diplomacy in Commanders to accept.`);
+   }, []);
+*** End Patch

@@ -1,0 +1,30 @@
+*** Begin Patch
+*** Update File: apps/client/src/App.css
+@@
+ .combat-bars {
+   display: grid;
+   gap: 6px;
+   min-width: 150px;
++  max-height: 132px;
++  overflow: auto;
++  padding-right: 2px;
+ }
+ 
++.combat-skirmish-label {
++  display: inline-flex;
++  align-items: center;
++  gap: 6px;
++}
++
++.combat-skirmish-tag {
++  font-size: 11px;
++  letter-spacing: 0.6px;
++  opacity: 0.92;
++}
++
+ .combat-bar-row {
+   display: grid;
+   grid-template-columns: 32px 1fr auto;
+   gap: 8px;
+   align-items: center;
+*** End Patch

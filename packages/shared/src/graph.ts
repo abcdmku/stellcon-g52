@@ -1,0 +1,36 @@
+export function buildConnectedComponentIndex(
+  ids: string[],
+  links: Record<string, string[] | undefined> | null | undefined
+): Record<string, number> {
+  const idSet = new Set(ids);
+  const componentById: Record<string, number> = {};
+  let component = 0;
+
+  for (const id of ids) {
+    if (componentById[id] !== undefined) continue;
+    componentById[id] = component;
+    const queue: string[] = [id];
+
+    while (queue.length) {
+      const current = queue.shift();
+      if (!current) continue;
+      for (const nextId of links?.[current] || []) {
+        if (!idSet.has(nextId)) continue;
+        if (componentById[nextId] !== undefined) continue;
+        componentById[nextId] = component;
+        queue.push(nextId);
+      }
+    }
+
+    component += 1;
+  }
+
+  return componentById;
+}
+
+export function inSameConnectedComponent(componentById: Record<string, number>, aId: string, bId: string) {
+  const a = componentById[aId];
+  const b = componentById[bId];
+  if (a === undefined || b === undefined) return false;
+  return a === b;
+}

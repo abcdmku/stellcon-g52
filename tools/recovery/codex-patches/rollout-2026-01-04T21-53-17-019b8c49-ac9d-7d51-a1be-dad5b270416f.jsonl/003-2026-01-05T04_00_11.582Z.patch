@@ -1,0 +1,62 @@
+*** Begin Patch
+*** Update File: apps/client/src/App.tsx
+@@
+ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+-import { POWERUPS, RESOURCE_COLORS, RESOURCE_TYPES } from "@stellcon/shared";
++import { buildConnectedComponentIndex, inSameConnectedComponent, POWERUPS, RESOURCE_COLORS, RESOURCE_TYPES } from "@stellcon/shared";
+ import type { GameListItem, GameState, Orders, PowerupKey } from "@stellcon/shared";
+ import { demoPlayerId, demoState } from "./demoState.js";
+ import Board from "./features/board/Board.tsx";
+ import Lobby from "./features/lobby/Lobby.jsx";
+ import PlayerCard from "./features/lobby/PlayerCard.jsx";
+@@
+   const me = playerId && state?.players ? state.players[playerId] : null;
+   const systems = state?.systems || [];
+   const links = state?.links || {};
++  const componentById = useMemo(() => buildConnectedComponentIndex(systems.map((system) => system.id), links), [links, systems]);
+   const selected = systems.find((system) => system.id === selectedId) ?? systems[0] ?? null;
+   const totalPlaced = Object.values(orders.placements || {}).reduce((sum, value) => sum + Number(value || 0), 0);
+   const fleetsRemaining = Math.max(0, (me?.fleetsToPlace || 0) - totalPlaced);
+   const turnSeconds = Number(state?.config?.turnSeconds || 0);
+   const planningRatio = turnSeconds > 0 && state?.phase === "planning" ? clamp(timer / turnSeconds, 0, 1) : 0;
+@@
+     const isTransferClick = Boolean(event?.shiftKey);
+     const wormholeActive = (me?.wormholeTurns || 0) > 0;
+-    const canMoveWithinOwned = (fromId, toId) => {
+-      if (!fromId || !toId) return false;
+-      if (fromId === toId) return true;
+-      const systemMap = new Map(systems.map((entry) => [entry.id, entry]));
+-      const origin = systemMap.get(fromId);
+-      if (!origin || origin.ownerId !== playerId) return false;
+-      const visited = new Set([fromId]);
+-      const queue = [fromId];
+-      while (queue.length) {
+-        const current = queue.shift();
+-        for (const nextId of links?.[current] || []) {
+-          if (visited.has(nextId)) continue;
+-          const next = systemMap.get(nextId);
+-          if (!next) continue;
+-          if (next.ownerId !== playerId) continue;
+-          if (nextId === toId) return true;
+-          visited.add(nextId);
+-          queue.push(nextId);
+-        }
+-      }
+-      return false;
+-    };
+ 
+     const isOwnedByMe = system.ownerId === playerId;
+ 
+     if (isOwnedByMe) {
+       if (isTransferClick && moveOriginId && moveOriginId !== system.id) {
+-        const canReach = wormholeActive || canMoveWithinOwned(moveOriginId, system.id);
++        const canReach = wormholeActive || inSameConnectedComponent(componentById, moveOriginId, system.id);
+         if (!canReach) {
+-          flashNotice("Not reachable (need Wormhole or a connected path through your systems).");
++          flashNotice("Not reachable (need Wormhole or a connected section).");
+           return;
+         }
+ 
+         const origin = systems.find((entry) => entry.id === moveOriginId);
+         if (!origin || origin.ownerId !== playerId) return;
+*** End Patch

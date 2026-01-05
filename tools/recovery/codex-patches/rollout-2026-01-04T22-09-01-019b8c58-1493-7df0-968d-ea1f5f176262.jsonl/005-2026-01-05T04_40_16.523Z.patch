@@ -1,0 +1,77 @@
+*** Begin Patch
+*** Update File: apps/client/src/features/board/useBoardCamera.ts
+@@
+ export function useBoardCamera({
+   mapBoundsKey,
+   mapPixelBounds,
+   hexSize,
+ }: {
+@@
+   const offsetRef = useRef(offset);
+   const scaleRef = useRef(scale);
+   const panRaf = useRef(0);
+   const pointerIdRef = useRef<number | null>(null);
++  const redrawTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+ 
+-  const applyCanvasTransform = useCallback(() => {
++  const applyCanvasTransform = useCallback((forceRedraw = false) => {
+     const canvas = canvasRef.current;
+     if (!canvas) return;
+     const currentScale = scaleRef.current || 1;
+     const currentOffset = offsetRef.current || { x: 0, y: 0 };
++    if (forceRedraw) {
++      canvas.style.transform = "none";
++      canvas.getBoundingClientRect();
++    }
+     canvas.style.transform = `translate(${currentOffset.x}px, ${currentOffset.y}px) scale(${currentScale})`;
+   }, []);
+ 
+   useLayoutEffect(() => {
+     offsetRef.current = offset;
+@@
+   useEffect(() => {
+     const handleResize = () => fitCameraToMap();
+     window.addEventListener("resize", handleResize);
+     return () => window.removeEventListener("resize", handleResize);
+   }, [fitCameraToMap]);
+ 
++  useEffect(() => {
++    return () => {
++      if (redrawTimeoutRef.current) {
++        clearTimeout(redrawTimeoutRef.current);
++        redrawTimeoutRef.current = null;
++      }
++      if (panRaf.current) {
++        cancelAnimationFrame(panRaf.current);
++        panRaf.current = 0;
++      }
++    };
++  }, []);
++
+   const handleWheel = useCallback(
+     (event: React.WheelEvent<HTMLDivElement>) => {
+       event.preventDefault();
+       cameraTouched.current = true;
+       const boardEl = boardRef.current;
+@@
+       scaleRef.current = nextScale;
+       offsetRef.current = nextOffset;
+       setScale(nextScale);
+       setOffset(nextOffset);
++
++      if (redrawTimeoutRef.current) clearTimeout(redrawTimeoutRef.current);
++      redrawTimeoutRef.current = setTimeout(() => {
++        redrawTimeoutRef.current = null;
++        applyCanvasTransform(true);
++      }, 120);
++
+       if (!panRaf.current) {
+         panRaf.current = requestAnimationFrame(() => {
+           panRaf.current = 0;
+           applyCanvasTransform();
+         });
+       }
+     },
+     [applyCanvasTransform]
+   );
+*** End Patch

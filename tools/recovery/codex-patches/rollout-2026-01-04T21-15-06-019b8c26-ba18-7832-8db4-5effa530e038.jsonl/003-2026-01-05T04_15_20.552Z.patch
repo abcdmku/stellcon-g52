@@ -1,0 +1,20 @@
+*** Begin Patch
+*** Update File: apps/client/src/App.css
+@@
+   will-change: transform, filter;
+   --hex-depth: drop-shadow(0 14px 22px rgba(0, 0, 0, 0.35));
+   --hex-owned-glow: drop-shadow(0 0 0 rgba(0, 0, 0, 0));
+   --hex-state-glow: drop-shadow(0 0 0 rgba(0, 0, 0, 0));
+-  filter: var(--hex-depth) var(--hex-owned-glow) var(--hex-state-glow);
++  --hex-hover-glow: drop-shadow(0 0 0 rgba(0, 0, 0, 0));
++  filter: var(--hex-depth) var(--hex-owned-glow) var(--hex-state-glow) var(--hex-hover-glow);
+ }
+@@
+ .hex:not(.selected):hover {
+-  box-shadow: 0 0 16px rgba(116, 242, 255, 0.18);
++  --hex-hover-glow:
++    drop-shadow(0 0 14px rgba(116, 242, 255, 0.14))
++    drop-shadow(0 0 22px rgba(116, 242, 255, 0.1));
+   transform: translate(-50%, -50%) scale(1.02);
+ }
+*** End Patch

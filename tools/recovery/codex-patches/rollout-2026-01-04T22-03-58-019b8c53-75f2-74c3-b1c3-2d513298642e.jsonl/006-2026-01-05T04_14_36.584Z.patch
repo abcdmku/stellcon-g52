@@ -1,0 +1,28 @@
+*** Begin Patch
+*** Update File: apps/client/src/App.css
+@@
+ .panel-subtitle {
+   margin-top: 16px;
+   font-size: 12px;
+   color: var(--muted);
+   text-transform: uppercase;
+   letter-spacing: 1.2px;
+ }
+ 
++.panel-row {
++  display: flex;
++  align-items: center;
++  gap: 12px;
++  margin-top: 10px;
++}
++
++.panel-row .muted {
++  flex: 1;
++  min-width: 0;
++}
++
+ .left .player-list {
+   display: grid;
+   gap: 12px;
+ }
+*** End Patch

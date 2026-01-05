@@ -1,0 +1,103 @@
+*** Begin Patch
+*** Update File: packages/shared/src/game/resolve.ts
+@@
+ import { PHASES, POWERUPS, RESOURCE_TYPES, RESOLUTION_TRAVEL_MS } from "../constants.js";
++import { buildConnectedComponentIndex, inSameConnectedComponent } from "../graph.js";
+ import { clamp, mulberry32, rollDie, seedToInt } from "../utils.js";
+ import type { GameState, ResolutionBattle, SystemState, SystemUpdate } from "../types.js";
+ import { isAllied, startPlanningPhase } from "./state.js";
+@@
+   const systemMap = new Map(systems.map((system) => [system.id, system]));
+   const playerMap = new Map(Object.values(game.players).map((player) => [player.id, { ...player }]));
++  const componentById = buildConnectedComponentIndex(
++    systems.map((system) => system.id),
++    game.links
++  );
+   const incoming = new Map<string, Record<string, number>>();
+   const updates: SystemUpdate[] = [];
+   type PlannedBattle = Omit<ResolutionBattle, "startOffsetMs" | "durationMs">;
+   const battles: PlannedBattle[] = [];
+-
+-  const canMoveWithinOwned = (fromId: string, toId: string, playerId: string) => {
+-    if (fromId === toId) return true;
+-    const visited = new Set([fromId]);
+-    const queue = [fromId];
+-    while (queue.length) {
+-      const current = queue.shift();
+-      const neighbors = game.links[current] || [];
+-      for (const nextId of neighbors) {
+-        if (visited.has(nextId)) continue;
+-        const next = systemMap.get(nextId);
+-        if (!next) continue;
+-        if (next.ownerId !== playerId) continue;
+-        if (nextId === toId) return true;
+-        visited.add(nextId);
+-        queue.push(nextId);
+-      }
+-    }
+-    return false;
+-  };
+ 
+   for (const player of Object.values(game.players)) {
+     const moves = player.orders.moves || [];
+     for (const move of moves) {
+       const from = systemMap.get(move.fromId);
+@@
+       if (to.ownerId && isAllied(game, player.id, to.ownerId) && to.ownerId !== player.id) continue;
+ 
+       const isFriendlyTransfer = to.ownerId === player.id;
+       const isNeighbor = game.links[from.id]?.includes(to.id);
+-      const canOwnedPath = isFriendlyTransfer && canMoveWithinOwned(from.id, to.id, player.id);
+-      if (!isNeighbor && player.wormholeTurns <= 0 && !canOwnedPath) continue;
++      const canConnectedTransfer = isFriendlyTransfer && inSameConnectedComponent(componentById, from.id, to.id);
++      if (!isNeighbor && player.wormholeTurns <= 0 && !canConnectedTransfer) continue;
+       if (to.ownerId && to.ownerId !== player.id && to.defenseNetTurns > 0) continue;
+ 
+       const amount = clamp(Number(move.count) || 0, 0, from.fleets);
+       if (amount <= 0) continue;
+@@
+ function resolveMovements(game: GameState, rand: () => number) {
+   const systemById = new Map(game.systems.map((system) => [system.id, system]));
+-  const canMoveWithinOwned = (fromId: string, toId: string, playerId: string) => {
+-    if (fromId === toId) return true;
+-    const visited = new Set([fromId]);
+-    const queue = [fromId];
+-    while (queue.length) {
+-      const current = queue.shift();
+-      const neighbors = game.links[current] || [];
+-      for (const nextId of neighbors) {
+-        if (visited.has(nextId)) continue;
+-        const next = systemById.get(nextId);
+-        if (!next) continue;
+-        if (next.ownerId !== playerId) continue;
+-        if (nextId === toId) return true;
+-        visited.add(nextId);
+-        queue.push(nextId);
+-      }
+-    }
+-    return false;
+-  };
++  const componentById = buildConnectedComponentIndex(
++    game.systems.map((system) => system.id),
++    game.links
++  );
+   const incoming = new Map<string, Record<string, number>>();
+ 
+   for (const player of Object.values(game.players)) {
+     const moves = player.orders.moves || [];
+     for (const move of moves) {
+@@
+       if (to.ownerId && isAllied(game, player.id, to.ownerId) && to.ownerId !== player.id) continue;
+ 
+       const isFriendlyTransfer = to.ownerId === player.id;
+       const isNeighbor = game.links[from.id]?.includes(to.id);
+-      const canOwnedPath = isFriendlyTransfer && canMoveWithinOwned(from.id, to.id, player.id);
+-      if (!isNeighbor && player.wormholeTurns <= 0 && !canOwnedPath) continue;
++      const canConnectedTransfer = isFriendlyTransfer && inSameConnectedComponent(componentById, from.id, to.id);
++      if (!isNeighbor && player.wormholeTurns <= 0 && !canConnectedTransfer) continue;
+ 
+       if (to.ownerId && to.ownerId !== player.id && to.defenseNetTurns > 0) continue;
+ 
+       const amount = clamp(Number(move.count) || 0, 0, from.fleets);
+       if (amount <= 0) continue;
+*** End Patch

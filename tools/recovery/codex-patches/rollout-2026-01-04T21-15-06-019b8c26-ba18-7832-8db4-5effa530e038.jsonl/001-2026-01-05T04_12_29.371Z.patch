@@ -1,0 +1,166 @@
+*** Begin Patch
+*** Update File: apps/client/src/App.css
+@@
+ .hex {
+   position: absolute;
+   width: 112px;
+   height: 97px;
+   transform: translate(-50%, -50%);
+   clip-path: polygon(25% 0%, 75% 0%, 100% 50%, 75% 100%, 25% 100%, 0 50%);
+   display: flex;
+   align-items: center;
+   justify-content: center;
+   cursor: pointer;
+-  transition: transform 0.2s ease, box-shadow 0.2s ease;
++  transition: transform 0.2s ease, filter 0.2s ease;
+   user-select: none;
+   z-index: 10;
++  isolation: isolate;
++  will-change: transform, filter;
++  --hex-depth: drop-shadow(0 14px 22px rgba(0, 0, 0, 0.35));
++  --hex-owned-glow: drop-shadow(0 0 0 rgba(0, 0, 0, 0));
++  --hex-state-glow: drop-shadow(0 0 0 rgba(0, 0, 0, 0));
++  filter: var(--hex-depth) var(--hex-owned-glow) var(--hex-state-glow);
+ }
+ 
+ .hex-border {
+   position: absolute;
+   inset: 0;
+   clip-path: inherit;
++  z-index: 0;
+   background: linear-gradient(145deg, rgba(255, 255, 255, 0.12), rgba(5, 8, 16, 0.92));
+   box-shadow:
+     inset 0 0 0 1.25px rgba(255, 255, 255, 0.12),
+     inset 0 0 26px rgba(0, 0, 0, 0.68),
+     0 0 18px rgba(0, 0, 0, 0.35);
+ }
+ 
+ .hex .hex-core {
+   position: absolute;
+   inset: 6px;
+   clip-path: inherit;
++  z-index: 1;
+   background:
+     radial-gradient(circle at 30% 25%, rgba(255, 255, 255, 0.22), rgba(0, 0, 0, 0.2)),
+     radial-gradient(circle at 70% 75%, rgba(0, 0, 0, 0.12), rgba(18, 22, 36, 0.92)),
+     radial-gradient(circle at 60% 65%, rgba(0, 0, 0, 0.08), var(--accent-glow));
+   opacity: 0.92;
+   box-shadow: inset 0 0 12px rgba(0, 0, 0, 0.6);
+ }
+ 
+ .hex.owned {
+-  border-color: color-mix(in srgb, var(--accent-color) 70%, rgba(255, 255, 255, 0.25));
+-  box-shadow: 0 0 18px rgba(0, 0, 0, 0.35), 0 0 22px var(--accent-glow);
++  --hex-owned-glow:
++    drop-shadow(0 0 14px color-mix(in srgb, var(--accent-color) 40%, transparent))
++    drop-shadow(0 0 22px var(--accent-glow));
+ }
+@@
+ .hex.selected {
+-  box-shadow: 0 0 26px rgba(116, 242, 255, 0.55), 0 0 34px var(--accent-glow);
++  z-index: 14;
++  --hex-state-glow:
++    drop-shadow(0 0 18px rgba(116, 242, 255, 0.55))
++    drop-shadow(0 0 34px var(--accent-glow));
+   transform: translate(-50%, -50%) scale(1.03);
+ }
+@@
+ .hex.neighbor {
+-  box-shadow: 0 0 20px rgba(116, 242, 255, 0.25);
++  --hex-state-glow:
++    drop-shadow(0 0 14px rgba(116, 242, 255, 0.18))
++    drop-shadow(0 0 22px rgba(116, 242, 255, 0.1));
+ }
+@@
+ .hex.placeable {
+-  box-shadow: 0 0 20px rgba(108, 247, 178, 0.18);
++  --hex-state-glow:
++    drop-shadow(0 0 14px rgba(108, 247, 178, 0.14))
++    drop-shadow(0 0 22px rgba(108, 247, 178, 0.1));
+ }
+@@
+ .hex.powerup-target {
+-  box-shadow: 0 0 22px var(--powerup-color);
++  z-index: 13;
++  --hex-state-glow:
++    drop-shadow(0 0 18px var(--powerup-color))
++    drop-shadow(0 0 28px color-mix(in srgb, var(--powerup-color) 55%, transparent));
+ }
+@@
+ .hex.origin {
+-  box-shadow:
+-    0 0 18px rgba(255, 255, 255, 0.16),
+-    0 0 26px var(--accent-glow);
++  z-index: 13;
++  --hex-state-glow:
++    drop-shadow(0 0 16px rgba(255, 255, 255, 0.14))
++    drop-shadow(0 0 26px var(--accent-glow));
+ }
+@@
+ .hex-value {
+   position: relative;
+   font-size: 24px;
+-  z-index: 1;
++  z-index: 3;
+   text-shadow: 0 6px 12px rgba(0, 0, 0, 0.4);
+   user-select: none;
+   cursor: default;
+ }
+ 
+ .hex-tier {
+   position: absolute;
+-  top: 8px;
++  top: 10px;
+   left: 50%;
+   transform: translateX(-50%);
+   display: flex;
+-  gap: 6px;
+-  z-index: 2;
+-  opacity: 0.9;
++  gap: 4px;
++  z-index: 4;
++  opacity: 0.95;
+ }
+ 
+ .hex-tier span {
+-  width: 14px;
+-  height: 10px;
+-  background: rgba(255, 255, 255, 0.18);
++  width: 12px;
++  height: 9px;
++  background: rgba(255, 255, 255, 0.22);
+   clip-path: polygon(0 0, 50% 60%, 100% 0, 100% 28%, 50% 88%, 0 28%);
+   box-shadow:
+     0 0 10px rgba(0, 0, 0, 0.5),
+     0 0 10px rgba(116, 242, 255, 0.08);
+ }
+@@
+ .hex-resources {
+   position: absolute;
+-  left: 12px;
+-  right: 12px;
+-  bottom: 10px;
++  left: 16px;
++  right: 16px;
++  bottom: 12px;
+   display: grid;
+   grid-template-columns: repeat(4, minmax(0, 1fr));
+-  gap: 6px;
+-  z-index: 2;
+-  opacity: 0.9;
++  gap: 5px;
++  z-index: 4;
++  opacity: 0.95;
+ }
+ 
+ .hex-res {
+-  height: 6px;
++  height: 7px;
+   border-radius: 999px;
+   overflow: hidden;
+   background: rgba(255, 255, 255, 0.06);
+   box-shadow:
+     inset 0 0 0 1px rgba(255, 255, 255, 0.1),
+     0 0 10px rgba(0, 0, 0, 0.35);
+ }
+*** End Patch

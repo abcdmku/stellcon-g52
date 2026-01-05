@@ -1,0 +1,11 @@
+*** Begin Patch
+*** Update File: apps/client/src/App.css
+@@
+ .board-canvas {
+   position: absolute;
+   left: 50%;
+   top: 50%;
+   transform-origin: center;
+-  will-change: transform;
+ }
+*** End Patch

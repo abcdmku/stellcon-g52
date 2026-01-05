@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { POWERUPS, RESOURCE_COLORS, RESOURCE_TYPES } from "@stellcon/shared";
+import { buildConnectedComponentIndex, inSameConnectedComponent, POWERUPS, RESOURCE_COLORS, RESOURCE_TYPES } from "@stellcon/shared";
 import type { GameListItem, GameState, Orders, PowerupKey } from "@stellcon/shared";
 import { demoPlayerId, demoState } from "./demoState.js";
 import Board from "./features/board/Board.tsx";
@@ -104,6 +104,7 @@ function App() {
   const [moveOriginId, setMoveOriginId] = useState<string | null>(null);
   const [placementMode, setPlacementMode] = useState(false);
   const [powerupDraft, setPowerupDraft] = useState<PowerupKey | "">("");
+  const [pendingAllianceFromIds, setPendingAllianceFromIds] = useState<Record<string, boolean>>({});
   const [timer, setTimer] = useState(0);
   const [availableGames, setAvailableGames] = useState<GameListItem[]>([]);
   const lastSeenTurnRef = useRef<{ turn: number | null; phase: string | null }>({ turn: null, phase: null });
@@ -137,7 +138,8 @@ function App() {
   }, []);
 
   const handleAllianceRequest = useCallback((fromId: string) => {
-    setError(`Alliance request from ${fromId}. Check diplomacy panel.`);
+    setPendingAllianceFromIds((current) => ({ ...current, [fromId]: true }));
+    setError(`Alliance request from ${fromId}. Use Diplomacy in Commanders to accept.`);
   }, []);
 
   const socketCallbacks = useMemo(
@@ -165,19 +167,11 @@ function App() {
   const me = playerId && state?.players ? state.players[playerId] : null;
   const systems = state?.systems || [];
   const links = state?.links || {};
-  const selected = systems.find((system) => system.id === selectedId) ?? systems[0] ?? null;
+  const componentById = useMemo(() => buildConnectedComponentIndex(systems.map((system) => system.id), links), [links, systems]);
   const totalPlaced = Object.values(orders.placements || {}).reduce((sum, value) => sum + Number(value || 0), 0);
   const fleetsRemaining = Math.max(0, (me?.fleetsToPlace || 0) - totalPlaced);
   const turnSeconds = Number(state?.config?.turnSeconds || 0);
   const planningRatio = turnSeconds > 0 && state?.phase === "planning" ? clamp(timer / turnSeconds, 0, 1) : 0;
-  const originSystem = systems.find((system) => system.id === moveOriginId);
-  const queuedFromOrigin = orders.moves.reduce(
-    (sum, move) => (move.fromId === moveOriginId ? sum + Number(move.count || 0) : sum),
-    0
-  );
-  const originPlacement = moveOriginId ? Number(orders.placements?.[moveOriginId] || 0) : 0;
-  const originTotalFleets = (originSystem?.fleets || 0) + (originSystem?.ownerId === playerId ? originPlacement : 0);
-  const originAvailable = Math.max(0, originTotalFleets - queuedFromOrigin);
 
   const flashNotice = (message: string) => {
     if (noticeTimeoutRef.current) {
@@ -452,38 +446,15 @@ function App() {
     if (!playerId) return;
     if (state?.phase !== "planning") return;
 
-    const isTransferClick = Boolean(event?.shiftKey);
     const wormholeActive = (me?.wormholeTurns || 0) > 0;
-    const canMoveWithinOwned = (fromId, toId) => {
-      if (!fromId || !toId) return false;
-      if (fromId === toId) return true;
-      const systemMap = new Map(systems.map((entry) => [entry.id, entry]));
-      const origin = systemMap.get(fromId);
-      if (!origin || origin.ownerId !== playerId) return false;
-      const visited = new Set([fromId]);
-      const queue = [fromId];
-      while (queue.length) {
-        const current = queue.shift();
-        for (const nextId of links?.[current] || []) {
-          if (visited.has(nextId)) continue;
-          const next = systemMap.get(nextId);
-          if (!next) continue;
-          if (next.ownerId !== playerId) continue;
-          if (nextId === toId) return true;
-          visited.add(nextId);
-          queue.push(nextId);
-        }
-      }
-      return false;
-    };
 
     const isOwnedByMe = system.ownerId === playerId;
 
     if (isOwnedByMe) {
-      if (isTransferClick && moveOriginId && moveOriginId !== system.id) {
-        const canReach = wormholeActive || canMoveWithinOwned(moveOriginId, system.id);
+      if (moveOriginId && moveOriginId !== system.id) {
+        const canReach = wormholeActive || inSameConnectedComponent(componentById, moveOriginId, system.id);
         if (!canReach) {
-          flashNotice("Not reachable (need Wormhole or a connected path through your systems).");
+          flashNotice("Not reachable (need Wormhole or a connected section).");
           return;
         }
 
@@ -546,10 +517,6 @@ function App() {
     queueMove(moveOriginId, system.id, origin.fleets || 0);
   };
 
-  const handleClearOrigin = () => {
-    setMoveOriginId(null);
-  };
-
   const handleTogglePlacementMode = () => {
     if (!playerId) return;
     if (state?.phase !== "planning") return;
@@ -571,11 +538,6 @@ function App() {
     adjustMove(index, delta, origin.fleets || 0);
   };
 
-  const handleQueuePowerup = () => {
-    if (!selected) return;
-    tryQueuePowerupAt(selected);
-  };
-
   const handleLockIn = () => {
     lockIn((response) => {
       if (response?.error) setError(response.error);
@@ -588,6 +550,12 @@ function App() {
 
   const handleAcceptAlliance = (targetId) => {
     acceptAlliance({ fromId: targetId });
+    setPendingAllianceFromIds((current) => {
+      if (!current[targetId]) return current;
+      const next = { ...current };
+      delete next[targetId];
+      return next;
+    });
   };
 
   const handleLeaveGame = () => {
@@ -601,6 +569,7 @@ function App() {
     resetOrders();
     setSelectedId(null);
     setMoveOriginId(null);
+    setPendingAllianceFromIds({});
     setError("");
   };
 
@@ -649,9 +618,6 @@ function App() {
     <div className="app">
       <div className="overlay-top">
         <div className="top-actions">
-          <div className="turn-info">
-            Turn {state.turn} of {state.config.maxTurns} - {state.phase}
-          </div>
           <button type="button" onClick={handleLeaveGame} className="secondary">
             Return to Lobby
           </button>
@@ -689,7 +655,41 @@ function App() {
           <div className="game-code">Game Code: {gameId}</div>
           <div className="player-list">
             {commanderPlayers.map((player) => (
-              <PlayerCard key={player.id} player={player} highlight={player.id === playerId} />
+              <PlayerCard
+                key={player.id}
+                player={player}
+                highlight={player.id === playerId}
+                diplomacy={(() => {
+                  if (!playerId) return null;
+                  if (player.id === playerId) return null;
+
+                  const alliedTurns = Number(me?.alliances?.[player.id] || 0);
+                  if (alliedTurns > 0) {
+                    return {
+                      label: `Allied (${alliedTurns})`,
+                      disabled: true,
+                      title: "Alliance lasts 3 turns.",
+                      onClick: () => {},
+                    };
+                  }
+
+                  if (pendingAllianceFromIds[player.id]) {
+                    return {
+                      label: "Accept",
+                      disabled: false,
+                      title: "Accept alliance (lasts 3 turns).",
+                      onClick: () => handleAcceptAlliance(player.id),
+                    };
+                  }
+
+                  return {
+                    label: "Diplomacy",
+                    disabled: false,
+                    title: "Request alliance (lasts 3 turns).",
+                    onClick: () => handleAlliance(player.id),
+                  };
+                })()}
+              />
             ))}
           </div>
         </aside>
@@ -715,83 +715,28 @@ function App() {
             selectedId={selectedId}
             moveOriginId={moveOriginId}
             onSystemClick={handleSystemClick}
+            onBackgroundClick={() => setSelectedId(null)}
             onMoveAdjust={handleAdjustMove}
             onMoveCancel={handleRemoveMove}
           />
         </section>
 
         <aside className="overlay-section right">
-          <div className="panel-title">System Focus</div>
-          {selected ? (
-            <div className="system-card">
-              <div className="system-card-left">
-                <div className="system-name">{selected.id}</div>
-                <div className="system-owner-row">
-                  <span className="system-owner-label">Owner</span>
-                  <span className="system-owner-pill">
-                    {selected.ownerId ? state.players[selected.ownerId]?.name : "Unclaimed"}
-                  </span>
-                  {selected.defenseNetTurns > 0 ? <span className="system-tag">Defense</span> : null}
-                  {selected.terraformed ? <span className="system-tag">Terraform</span> : null}
-                </div>
-                <div className="system-resources" aria-label="System Resources">
-                  {RESOURCE_TYPES.map((key) => (
-                    <div key={key} className={`res-pill res-${key}`} title={resourceLabels[key]}>
-                      <span className="res-abbr">{resourceAbbr[key]}</span>
-                      <span className="res-val">{selected.resources?.[key] ?? 0}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-              <div className="system-fleets">{selected.fleets}</div>
-            </div>
-          ) : null}
-
-          <div className="panel-subtitle">Moves</div>
-          {playerId && state.phase === "planning" ? (
-            <>
-              <div className="move-origin">
-                <div className="move-origin-row">
-                  <span>
-                    Origin: {moveOriginId || "None"}
-                    {moveOriginId ? ` (${originAvailable} available)` : ""}
-                  </span>
-                  <button type="button" onClick={handleClearOrigin} disabled={!moveOriginId}>
-                    Clear
-                  </button>
-                </div>
-                <div className="muted">Click a target to send 1 fleet. Shift-click your system to transfer from the current origin.</div>
-              </div>
-
-              <div className="order-list" aria-label="Planned moves">
-                {(orders.moves || []).length ? (
-                  (orders.moves || []).map((move, index) => (
-                    <div key={`move-${move.fromId}-${move.toId}-${index}`} className="order-item">
-                      <span>
-                        {move.fromId} → {move.toId}
-                      </span>
-                      <span className="order-controls">
-                        <button type="button" onClick={() => handleAdjustMove(index, -1)} aria-label="Decrease move">
-                          -
-                        </button>
-                        <span>{Number(move.count) || 0}</span>
-                        <button type="button" onClick={() => handleAdjustMove(index, 1)} aria-label="Increase move">
-                          +
-                        </button>
-                        <button type="button" onClick={() => handleRemoveMove(index)} aria-label="Remove move">
-                          x
-                        </button>
-                      </span>
-                    </div>
-                  ))
-                ) : (
-                  <div className="muted">No moves queued yet.</div>
-                )}
-              </div>
-            </>
-          ) : (
-            <div className="muted">Moves can be planned during the Planning phase.</div>
-          )}
+          <div className="panel-subtitle">Fleet Placement</div>
+          <div className="panel-row">
+            <button
+              type="button"
+              className={`bottom-placement ${placementMode ? "active" : ""}`}
+              onClick={handleTogglePlacementMode}
+              disabled={!playerId || state.phase !== "planning" || fleetsRemaining <= 0}
+              aria-pressed={placementMode}
+              title={placementMode ? "Placement mode active" : "Enter placement mode"}
+            >
+              <FleetIcon />
+              <span className="bottom-placement-count">{fleetsRemaining}</span>
+            </button>
+            <div className="muted">Click one of your systems to place 1 fleet.</div>
+          </div>
 
           <div className="panel-subtitle">Powerups</div>
           <div className="powerup-grid">
@@ -830,59 +775,19 @@ function App() {
             })}
           </div>
           {powerupDraft ? <div className="muted">{powerupHelp[powerupDraft] || "Click a highlighted system to place."}</div> : null}
-          <button
-            type="button"
-            className="queue"
-            onClick={handleQueuePowerup}
-            disabled={!powerupDraft || !selected?.id || !powerupTargetIds.has(selected.id)}
-            title={!powerupDraft ? "Select a powerup first" : "Place on the currently selected system"}
-          >
-            Place Powerup on Selected
-          </button>
-
-          <div className="panel-subtitle">Diplomacy</div>
-          <div className="diplomacy">
-            {players
-              .filter((player) => player.id !== playerId)
-              .map((player) => (
-                <div className="diplomacy-row" key={player.id}>
-                  <span>{player.name}</span>
-                  <div>
-                    <button type="button" onClick={() => handleAlliance(player.id)}>
-                      Request
-                    </button>
-                    <button type="button" onClick={() => handleAcceptAlliance(player.id)}>
-                      Accept
-                    </button>
-                  </div>
-                </div>
-              ))}
-          </div>
         </aside>
       </div>
 
       <div className="overlay-bottom" aria-label="Game Status">
         <div className="bottom-hud">
-          <div className="bottom-top" aria-label="Planning Controls">
-            <button
-              type="button"
-              className={`bottom-placement ${placementMode ? "active" : ""}`}
-              onClick={handleTogglePlacementMode}
-              disabled={!playerId || state.phase !== "planning" || fleetsRemaining <= 0}
-              aria-pressed={placementMode}
-              title={placementMode ? "Placement mode active" : "Enter placement mode"}
-            >
-              <FleetIcon />
-              <span className="bottom-placement-count">{fleetsRemaining}</span>
-            </button>
-          </div>
-
           <div className="bottom-main">
             <div className="countdown" role="status" aria-label="Turn Countdown">
               <div className="countdown-track" aria-hidden="true">
                 <div className="countdown-fill" style={{ width: `${planningRatio * 100}%` }} />
               </div>
-              <div className="countdown-text">{state.phase === "planning" ? `${timer}s` : "Resolving..."}</div>
+              <div className="countdown-text">
+                Turn {state.turn} of {state.config.maxTurns} — {state.phase === "planning" ? `${timer}s` : "Resolving..."}
+              </div>
             </div>
 
             <div className="bottom-actions">
