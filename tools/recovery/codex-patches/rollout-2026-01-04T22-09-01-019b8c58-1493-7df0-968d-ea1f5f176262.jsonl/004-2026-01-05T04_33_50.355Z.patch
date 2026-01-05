@@ -1,0 +1,20 @@
+*** Begin Patch
+*** Update File: apps/client/src/features/board/useBoardCamera.ts
+@@
+       event.preventDefault();
+       cameraTouched.current = true;
+       const boardEl = boardRef.current;
+       if (!boardEl) return;
+ 
+       const currentScale = scaleRef.current || 1;
+       const currentOffset = offsetRef.current || { x: 0, y: 0 };
+       const rect = boardEl.getBoundingClientRect();
+-      const anchorX = event.clientX - rect.left;
+-      const anchorY = event.clientY - rect.top;
++      const anchorX = event.clientX - (rect.left + rect.width / 2);
++      const anchorY = event.clientY - (rect.top + rect.height / 2);
+       const delta = event.deltaY > 0 ? -0.08 : 0.08;
+       const nextScale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, currentScale + delta));
+       if (nextScale === currentScale) return;
+ 
+*** End Patch

@@ -1,0 +1,10 @@
+*** Begin Patch
+*** Update File: apps/client/src/App.tsx
+@@
+     resetOrders();
+     setSelectedId(null);
+     setMoveOriginId(null);
++    setPendingAllianceFromIds({});
+     setError("");
+   };
+*** End Patch

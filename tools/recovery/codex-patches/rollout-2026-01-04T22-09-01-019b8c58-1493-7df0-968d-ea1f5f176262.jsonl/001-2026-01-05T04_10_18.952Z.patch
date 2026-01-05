@@ -1,0 +1,29 @@
+*** Begin Patch
+*** Update File: apps/client/src/features/board/useBoardCamera.ts
+@@
+ type MapBounds = { minX: number; maxX: number; minY: number; maxY: number } | null;
+ 
++const MIN_SCALE = 0.35;
++const MAX_SCALE = 2.5;
++
+ function clamp(value: number, min: number, max: number) {
+   return Math.max(min, Math.min(max, value));
+ }
+@@
+-    const nextScale = clamp(Math.min(availableWidth / contentWidth, availableHeight / contentHeight), 0.35, 1.15);
++    const nextScale = clamp(
++      Math.min(availableWidth / contentWidth, availableHeight / contentHeight),
++      MIN_SCALE,
++      1.15
++    );
+@@
+       event.preventDefault();
+       cameraTouched.current = true;
+       const delta = event.deltaY > 0 ? -0.08 : 0.08;
+-      const next = Math.min(1.6, Math.max(0.35, (scaleRef.current || 1) + delta));
++      const next = Math.min(MAX_SCALE, Math.max(MIN_SCALE, (scaleRef.current || 1) + delta));
+       if (next === scaleRef.current) return;
+       scaleRef.current = next;
+       setScale(next);
+       if (!panRaf.current) {
+*** End Patch

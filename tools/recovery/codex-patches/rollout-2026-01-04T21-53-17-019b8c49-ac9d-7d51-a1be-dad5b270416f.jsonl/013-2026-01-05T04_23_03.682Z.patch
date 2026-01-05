@@ -1,0 +1,57 @@
+*** Begin Patch
+*** Update File: apps/client/src/App.css
+@@
+ .board-links {
+   position: absolute;
+   left: -3000px;
+   top: -2200px;
+   width: 6000px;
+   height: 4400px;
+   pointer-events: none;
+-  z-index: 12;
++  z-index: 60;
+ }
+@@
+ .move-particle {
+@@
+-  z-index: 13;
++  z-index: 61;
+ }
+@@
+ .planned-move-controls {
+   position: absolute;
+   inset: 0;
+   pointer-events: none;
+-  z-index: 14;
++  z-index: 62;
+ }
+@@
+ .move-btn {
+   position: absolute;
+-  width: 26px;
+-  height: 26px;
++  width: 18px;
++  height: 18px;
+   border-radius: 999px;
+   border: 1px solid rgba(255, 255, 255, 0.14);
+   background: rgba(8, 12, 22, 0.85);
+   color: var(--text);
+   display: grid;
+   place-items: center;
+-  font-size: 16px;
++  font-size: 12px;
+   pointer-events: auto;
+   cursor: pointer;
+   transform: translate(-50%, -50%);
+   box-shadow: 0 10px 22px rgba(0, 0, 0, 0.45);
+ }
+ 
+ .move-btn.cancel {
+-  width: 28px;
+-  height: 28px;
++  width: 18px;
++  height: 18px;
+   background: rgba(120, 40, 55, 0.85);
+   border-color: rgba(255, 120, 140, 0.35);
+ }
+*** End Patch

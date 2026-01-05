@@ -1,0 +1,25 @@
+*** Begin Patch
+*** Update File: apps/client/src/App.tsx
+@@
+       <div className="overlay-bottom" aria-label="Game Status">
+         <div className="bottom-hud">
+-          <div className="bottom-top" aria-label="Planning Controls">
+-            <button
+-              type="button"
+-              className={`bottom-placement ${placementMode ? "active" : ""}`}
+-              onClick={handleTogglePlacementMode}
+-              disabled={!playerId || state.phase !== "planning" || fleetsRemaining <= 0}
+-              aria-pressed={placementMode}
+-              title={placementMode ? "Placement mode active" : "Enter placement mode"}
+-            >
+-              <FleetIcon />
+-              <span className="bottom-placement-count">{fleetsRemaining}</span>
+-            </button>
+-          </div>
+-
+           <div className="bottom-main">
+             <div className="countdown" role="status" aria-label="Turn Countdown">
+               <div className="countdown-track" aria-hidden="true">
+                 <div className="countdown-fill" style={{ width: `${planningRatio * 100}%` }} />
+               </div>
+*** End Patch

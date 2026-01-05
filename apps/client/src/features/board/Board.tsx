@@ -764,22 +764,16 @@ const Board = memo(function Board({
             {(() => {
               const path = plannedMovePaths.find((entry) => entry.index === hoveredMoveIndex);
               if (!path) return null;
-              const dx = path.dx;
-              const dy = path.dy;
-              const len = path.len || 1;
-              const ux = dx / len;
-              const uy = dy / len;
-              const px = -uy;
-              const py = ux;
               const mx = path.labelX;
               const my = path.labelY;
-              const spread = 26;
-              const x1 = mx - ux * spread;
-              const y1 = my - uy * spread;
-              const x2 = mx + px * spread;
-              const y2 = my + py * spread;
-              const x3 = mx + ux * spread;
-              const y3 = my + uy * spread;
+              const controlGap = 18;
+              const controlLift = 26;
+              const x1 = mx - controlGap;
+              const y1 = my + controlLift;
+              const x2 = mx;
+              const y2 = my + controlLift;
+              const x3 = mx + controlGap;
+              const y3 = my + controlLift;
               return (
                 <>
                   <button
@@ -1077,12 +1071,20 @@ const Board = memo(function Board({
                           <>
                             <div className="combat-title">Skirmish</div>
                             <div className="combat-bars">
-                              {sorted.slice(0, 4).map((entry) => {
-                                const color = players?.[entry.playerId]?.color || "rgba(255,255,255,0.55)";
+                              {sorted.map((entry, index) => {
+                                const playerName = entry.playerId ? players?.[entry.playerId]?.name : "Neutral";
+                                const tag =
+                                  (playerName ? String(playerName).trim().slice(0, 3) : "") ||
+                                  (entry.playerId ? String(entry.playerId).slice(0, 3) : "");
+                                const label = tag ? tag.toUpperCase() : "NEU";
+                                const color = entry.playerId ? players?.[entry.playerId]?.color : "rgba(180,190,215,0.65)";
                                 const ratio = clamp((Number(entry.fleets) || 0) / max, 0, 1);
                                 return (
-                                  <div key={entry.playerId || "neutral"} className="combat-bar-row">
-                                    <span className="combat-dot" style={{ background: color }} aria-hidden="true" />
+                                  <div key={`skirmish-${battle.targetId}-${entry.playerId ?? "neutral"}-${index}`} className="combat-bar-row">
+                                    <span className="combat-bar-label combat-skirmish-label" title={playerName || undefined}>
+                                      <span className="combat-dot" style={{ background: color }} aria-hidden="true" />
+                                      <span className="combat-skirmish-tag">{label}</span>
+                                    </span>
                                     <span className="combat-bar-track" aria-hidden="true">
                                       <span className="combat-bar-fill" style={{ width: `${ratio * 100}%`, background: color }} />
                                     </span>

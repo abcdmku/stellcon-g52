@@ -1,0 +1,7 @@
+*** Begin Patch
+*** Update File: apps/client/src/App.tsx
+@@
+-                <div className="muted">Click a target to send 1 fleet. Shift-click your system to transfer from the current origin.</div>
++                <div className="muted">Click any target to send 1 fleet. Click one of your systems to set (or change) the origin.</div>
+               </div>
+*** End Patch

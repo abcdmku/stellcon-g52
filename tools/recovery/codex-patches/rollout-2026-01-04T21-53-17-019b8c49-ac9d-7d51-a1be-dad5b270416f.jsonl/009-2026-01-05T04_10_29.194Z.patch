@@ -1,0 +1,50 @@
+*** Begin Patch
+*** Update File: apps/client/src/features/board/Board.tsx
+@@
+   selectedId,
+   moveOriginId,
+   onSystemClick,
++  onBackgroundClick,
+   onMoveAdjust,
+   onMoveCancel,
+ }: BoardProps) {
+@@
+   const handleBoardPointerUp = useCallback(
+     (event: React.PointerEvent<HTMLDivElement>) => {
+       handlePointerUp(event);
+       const isPlannedMoveControl = Boolean(event?.target && event.target instanceof Element && event.target.closest(".planned-move-controls"));
+       if (!isPlannedMoveControl) setHoveredMoveIndex(null);
+     },
+     [handlePointerUp]
+   );
+ 
++  const handleBoardClick = useCallback(
++    (event: React.MouseEvent<HTMLDivElement>) => {
++      if (suppressNextClick.current) {
++        suppressNextClick.current = false;
++        return;
++      }
++
++      const target = event.target instanceof Element ? event.target : null;
++      if (target?.closest(".hex")) return;
++      if (target?.closest(".planned-move-controls")) return;
++
++      onBackgroundClick?.(event);
++    },
++    [onBackgroundClick, suppressNextClick]
++  );
++
+   return (
+     <div
+       className="board"
+       ref={boardRef}
+       onWheel={handleWheel}
+       onPointerDown={handleBoardPointerDown}
+       onPointerMove={handleBoardPointerMove}
+       onPointerUp={handleBoardPointerUp}
+       onPointerLeave={handleBoardPointerUp}
++      onClick={handleBoardClick}
+     >
+       <div className="board-canvas" ref={canvasRef}>
+         <svg className="board-links" viewBox="-3000 -2200 6000 4400">
+*** End Patch

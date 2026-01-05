@@ -1,0 +1,22 @@
+*** Begin Patch
+*** Update File: apps/client/src/App.tsx
+@@
+   const handleAdjustMove = (index, delta) => {
+     const move = orders.moves[index];
+     if (!move) return;
+     const origin = systems.find((entry) => entry.id === move.fromId);
+     if (!origin || origin.ownerId !== playerId) return;
+     adjustMove(index, delta, origin.fleets || 0);
+   };
+-
+-  const handleQueuePowerup = () => {
+-    if (!selected) return;
+-    tryQueuePowerupAt(selected);
+-  };
+ 
+   const handleLockIn = () => {
+     lockIn((response) => {
+       if (response?.error) setError(response.error);
+     });
+   };
+*** End Patch

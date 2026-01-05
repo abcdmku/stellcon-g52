@@ -1,0 +1,150 @@
+*** Begin Patch
+*** Update File: apps/client/src/App.tsx
+@@
+   const handleAdjustMove = (index, delta) => {
+     const move = orders.moves[index];
+     if (!move) return;
+     const origin = systems.find((entry) => entry.id === move.fromId);
+     if (!origin || origin.ownerId !== playerId) return;
+     adjustMove(index, delta, origin.fleets || 0);
+   };
+-
+-  const handleQueuePowerup = () => {
+-    if (!selected) return;
+-    tryQueuePowerupAt(selected);
+-  };
+ 
+   const handleLockIn = () => {
+     lockIn((response) => {
+       if (response?.error) setError(response.error);
+     });
+@@
+         </section>
+ 
+         <aside className="overlay-section right">
+-          <div className="panel-title">System Focus</div>
+-          {selected ? (
+-            <div className="system-card">
+-              <div className="system-card-left">
+-                <div className="system-name">{selected.id}</div>
+-                <div className="system-owner-row">
+-                  <span className="system-owner-label">Owner</span>
+-                  <span className="system-owner-pill">
+-                    {selected.ownerId ? state.players[selected.ownerId]?.name : "Unclaimed"}
+-                  </span>
+-                  {selected.defenseNetTurns > 0 ? <span className="system-tag">Defense</span> : null}
+-                  {selected.terraformed ? <span className="system-tag">Terraform</span> : null}
+-                </div>
+-                <div className="system-resources" aria-label="System Resources">
+-                  {RESOURCE_TYPES.map((key) => (
+-                    <div key={key} className={`res-pill res-${key}`} title={resourceLabels[key]}>
+-                      <span className="res-abbr">{resourceAbbr[key]}</span>
+-                      <span className="res-val">{selected.resources?.[key] ?? 0}</span>
+-                    </div>
+-                  ))}
+-                </div>
+-              </div>
+-              <div className="system-fleets">{selected.fleets}</div>
+-            </div>
+-          ) : null}
+-
+-          <div className="panel-subtitle">Moves</div>
+-          {playerId && state.phase === "planning" ? (
+-            <>
+-              <div className="move-origin">
+-                <div className="move-origin-row">
+-                  <span>
+-                    Origin: {moveOriginId || "None"}
+-                    {moveOriginId ? ` (${originAvailable} available)` : ""}
+-                  </span>
+-                  <button type="button" onClick={handleClearOrigin} disabled={!moveOriginId}>
+-                    Clear
+-                  </button>
+-                </div>
+-                <div className="muted">Click any target to send 1 fleet. Click one of your systems to set (or change) the origin.</div>
+-              </div>
+-
+-              <div className="order-list" aria-label="Planned moves">
+-                {(orders.moves || []).length ? (
+-                  (orders.moves || []).map((move, index) => (
+-                    <div key={`move-${move.fromId}-${move.toId}-${index}`} className="order-item">
+-                      <span>
+-                        {move.fromId} ƒ+' {move.toId}
+-                      </span>
+-                      <span className="order-controls">
+-                        <button type="button" onClick={() => handleAdjustMove(index, -1)} aria-label="Decrease move">
+-                          -
+-                        </button>
+-                        <span>{Number(move.count) || 0}</span>
+-                        <button type="button" onClick={() => handleAdjustMove(index, 1)} aria-label="Increase move">
+-                          +
+-                        </button>
+-                        <button type="button" onClick={() => handleRemoveMove(index)} aria-label="Remove move">
+-                          x
+-                        </button>
+-                      </span>
+-                    </div>
+-                  ))
+-                ) : (
+-                  <div className="muted">No moves queued yet.</div>
+-                )}
+-              </div>
+-            </>
+-          ) : (
+-            <div className="muted">Moves can be planned during the Planning phase.</div>
+-          )}
++          <div className="panel-subtitle">Fleet Placement</div>
++          <div className="panel-row">
++            <button
++              type="button"
++              className={`bottom-placement ${placementMode ? "active" : ""}`}
++              onClick={handleTogglePlacementMode}
++              disabled={!playerId || state.phase !== "planning" || fleetsRemaining <= 0}
++              aria-pressed={placementMode}
++              title={placementMode ? "Placement mode active" : "Enter placement mode"}
++            >
++              <FleetIcon />
++              <span className="bottom-placement-count">{fleetsRemaining}</span>
++            </button>
++            <div className="muted">Click one of your systems to place 1 fleet.</div>
++          </div>
+ 
+           <div className="panel-subtitle">Powerups</div>
+           <div className="powerup-grid">
+             {Object.values(POWERUPS).map((powerup) => {
+               const points = Number(me?.research?.[powerup.resource] || 0);
+@@
+             })}
+           </div>
+           {powerupDraft ? <div className="muted">{powerupHelp[powerupDraft] || "Click a highlighted system to place."}</div> : null}
+-          <button
+-            type="button"
+-            className="queue"
+-            onClick={handleQueuePowerup}
+-            disabled={!powerupDraft || !selected?.id || !powerupTargetIds.has(selected.id)}
+-            title={!powerupDraft ? "Select a powerup first" : "Place on the currently selected system"}
+-          >
+-            Place Powerup on Selected
+-          </button>
+-
+-          <div className="panel-subtitle">Diplomacy</div>
+-          <div className="diplomacy">
+-            {players
+-              .filter((player) => player.id !== playerId)
+-              .map((player) => (
+-                <div className="diplomacy-row" key={player.id}>
+-                  <span>{player.name}</span>
+-                  <div>
+-                    <button type="button" onClick={() => handleAlliance(player.id)}>
+-                      Request
+-                    </button>
+-                    <button type="button" onClick={() => handleAcceptAlliance(player.id)}>
+-                      Accept
+-                    </button>
+-                  </div>
+-                </div>
+-              ))}
+-          </div>
+         </aside>
+       </div>
+*** End Patch

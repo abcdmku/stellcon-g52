@@ -1,0 +1,13 @@
+*** Begin Patch
+*** Update File: apps/client/src/App.tsx
+@@
+   const handleAcceptAlliance = (targetId) => {
+     acceptAlliance({ fromId: targetId });
++    setPendingAllianceFromIds((current) => {
++      if (!current[targetId]) return current;
++      const next = { ...current };
++      delete next[targetId];
++      return next;
++    });
+   };
+*** End Patch

@@ -1,0 +1,106 @@
+{
+  "generatedAt": "2026-01-05T06:13:09.887Z",
+  "sessions": [
+    {
+      "sessionFile": "rollout-2026-01-04T21-12-59-019b8c24-c8eb-7802-a498-91e051a9203b.jsonl",
+      "meta": {
+        "id": "019b8c24-c8eb-7802-a498-91e051a9203b",
+        "timestamp": "2026-01-05T03:12:59.627Z",
+        "cwd": "c:\\Users\\cafal\\OneDrive\\Documents\\GitHub\\stellcon-g52",
+        "originator": "codex_vscode"
+      },
+      "applyPatchCount": 1,
+      "touchedFiles": [
+        "apps/client/src/App.css"
+      ],
+      "destructiveGitCommands": []
+    },
+    {
+      "sessionFile": "rollout-2026-01-04T21-15-06-019b8c26-ba18-7832-8db4-5effa530e038.jsonl",
+      "meta": {
+        "id": "019b8c26-ba18-7832-8db4-5effa530e038",
+        "timestamp": "2026-01-05T03:15:06.904Z",
+        "cwd": "c:\\Users\\cafal\\OneDrive\\Documents\\GitHub\\stellcon-g52",
+        "originator": "codex_vscode"
+      },
+      "applyPatchCount": 4,
+      "touchedFiles": [
+        "apps/client/src/App.css",
+        "tools/recovery/README.md",
+        "tools/recovery/extract-codex-patches.mjs"
+      ],
+      "destructiveGitCommands": [
+        "cd c:\\Users\\cafal\\OneDrive\\Documents\\GitHub\\stellcon-g52; git restore . ':!apps/client/src/App.css'",
+        "rg -n \"git restore \\. ':!apps/client/src/App\\.css'\" C:\\Users\\cafal\\.codex\\sessions\\2026\\01\\04\\rollout-2026-01-04T21-15-06-019b8c26-ba18-7832-8db4-5effa530e038.jsonl"
+      ]
+    },
+    {
+      "sessionFile": "rollout-2026-01-04T21-53-17-019b8c49-ac9d-7d51-a1be-dad5b270416f.jsonl",
+      "meta": {
+        "id": "019b8c49-ac9d-7d51-a1be-dad5b270416f",
+        "timestamp": "2026-01-05T03:53:17.213Z",
+        "cwd": "c:\\Users\\cafal\\OneDrive\\Documents\\GitHub\\stellcon-g52",
+        "originator": "codex_vscode"
+      },
+      "applyPatchCount": 13,
+      "touchedFiles": [
+        "apps/client/src/App.css",
+        "apps/client/src/App.tsx",
+        "apps/client/src/features/board/Board.tsx",
+        "apps/client/src/features/board/types.ts",
+        "apps/client/src/features/board/useBoardLayout.ts",
+        "packages/shared/package.json",
+        "packages/shared/src/game/resolve.ts",
+        "packages/shared/src/graph.ts",
+        "packages/shared/src/index.ts"
+      ],
+      "destructiveGitCommands": []
+    },
+    {
+      "sessionFile": "rollout-2026-01-04T22-03-58-019b8c53-75f2-74c3-b1c3-2d513298642e.jsonl",
+      "meta": {
+        "id": "019b8c53-75f2-74c3-b1c3-2d513298642e",
+        "timestamp": "2026-01-05T04:03:58.578Z",
+        "cwd": "c:\\Users\\cafal\\OneDrive\\Documents\\GitHub\\stellcon-g52",
+        "originator": "codex_vscode"
+      },
+      "applyPatchCount": 17,
+      "touchedFiles": [
+        "apps/client/src/App.css",
+        "apps/client/src/App.tsx",
+        "apps/client/src/features/lobby/PlayerCard.jsx"
+      ],
+      "destructiveGitCommands": []
+    },
+    {
+      "sessionFile": "rollout-2026-01-04T22-09-01-019b8c58-1493-7df0-968d-ea1f5f176262.jsonl",
+      "meta": {
+        "id": "019b8c58-1493-7df0-968d-ea1f5f176262",
+        "timestamp": "2026-01-05T04:09:01.331Z",
+        "cwd": "c:\\Users\\cafal\\OneDrive\\Documents\\GitHub\\stellcon-g52",
+        "originator": "codex_vscode"
+      },
+      "applyPatchCount": 5,
+      "touchedFiles": [
+        "apps/client/src/App.css",
+        "apps/client/src/features/board/useBoardCamera.ts"
+      ],
+      "destructiveGitCommands": []
+    },
+    {
+      "sessionFile": "rollout-2026-01-04T22-34-03-019b8c6f-0011-7d92-b457-eb8e495beb63.jsonl",
+      "meta": {
+        "id": "019b8c6f-0011-7d92-b457-eb8e495beb63",
+        "timestamp": "2026-01-05T04:34:03.409Z",
+        "cwd": "c:\\Users\\cafal\\OneDrive\\Documents\\GitHub\\stellcon-g52",
+        "originator": "codex_vscode"
+      },
+      "applyPatchCount": 2,
+      "touchedFiles": [
+        "apps/client/src/App.css",
+        "apps/client/src/features/board/Board.tsx"
+      ],
+      "destructiveGitCommands": []
+    }
+  ]
+}

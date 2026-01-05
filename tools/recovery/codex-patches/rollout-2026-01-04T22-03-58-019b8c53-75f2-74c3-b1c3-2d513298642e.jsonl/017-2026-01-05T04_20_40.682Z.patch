@@ -1,0 +1,17 @@
+*** Begin Patch
+*** Update File: apps/client/src/App.css
+@@
+ .overlay-top {
+   position: fixed;
+   top: 16px;
+-  left: calc(16px + 280px + 16px);
+-  right: auto;
++  right: 16px;
++  left: auto;
+   display: grid;
+   gap: 12px;
+   z-index: 240;
+   pointer-events: none;
++  justify-items: end;
+ }
+*** End Patch

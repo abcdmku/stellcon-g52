@@ -1,0 +1,25 @@
+*** Begin Patch
+*** Update File: apps/client/src/App.tsx
+@@
+-    const isTransferClick = Boolean(event?.shiftKey);
+     const wormholeActive = (me?.wormholeTurns || 0) > 0;
+@@
+     const isOwnedByMe = system.ownerId === playerId;
+ 
+     if (isOwnedByMe) {
+-      if (isTransferClick && moveOriginId && moveOriginId !== system.id) {
++      if (moveOriginId && moveOriginId !== system.id) {
+         const canReach = wormholeActive || inSameConnectedComponent(componentById, moveOriginId, system.id);
+         if (!canReach) {
+           flashNotice("Not reachable (need Wormhole or a connected section).");
+           return;
+         }
+@@
+         queueMove(moveOriginId, system.id, origin.fleets || 0);
+         return;
+       }
+ 
+       setMoveOriginId((current) => (current === system.id ? null : system.id));
+       return;
+     }
+*** End Patch

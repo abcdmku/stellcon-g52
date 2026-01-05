@@ -1,0 +1,19 @@
+*** Begin Patch
+*** Update File: apps/client/src/features/board/types.ts
+@@
++import type React from "react";
+ import type { Orders, Phase, PlayerState, PowerupKey, RevealedMove, ResolutionBattle, SystemState } from "@stellcon/shared";
+ 
+ export type BoardProps = {
+   systems: SystemState[];
+   links: Record<string, string[]>;
+@@
+   fleetsRemaining: number;
+   selectedId: string | null;
+   moveOriginId: string | null;
+   onSystemClick: (system: SystemState, event?: React.MouseEvent<HTMLDivElement>) => void;
++  onBackgroundClick?: (event: React.MouseEvent<HTMLDivElement>) => void;
+   onMoveAdjust: (index: number, delta: number) => void;
+   onMoveCancel: (index: number) => void;
+ };
+*** End Patch

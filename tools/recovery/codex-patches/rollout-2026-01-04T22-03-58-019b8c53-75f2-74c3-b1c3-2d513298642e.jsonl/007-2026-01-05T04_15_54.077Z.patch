@@ -1,0 +1,87 @@
+*** Begin Patch
+*** Update File: apps/client/src/App.tsx
+@@
+   const [selectedId, setSelectedId] = useState<string | null>(null);
+   const [moveOriginId, setMoveOriginId] = useState<string | null>(null);
+   const [placementMode, setPlacementMode] = useState(false);
+   const [powerupDraft, setPowerupDraft] = useState<PowerupKey | "">("");
++  const [pendingAllianceFromIds, setPendingAllianceFromIds] = useState<Record<string, boolean>>({});
+   const [timer, setTimer] = useState(0);
+   const [availableGames, setAvailableGames] = useState<GameListItem[]>([]);
+   const lastSeenTurnRef = useRef<{ turn: number | null; phase: string | null }>({ turn: null, phase: null });
+   const noticeTimeoutRef = useRef<number | null>(null);
+@@
+-  const handleAllianceRequest = useCallback((fromId: string) => {
+-    setError(`Alliance request from ${fromId}. Check diplomacy panel.`);
+-  }, []);
++  const handleAllianceRequest = useCallback((fromId: string) => {
++    setPendingAllianceFromIds((current) => ({ ...current, [fromId]: true }));
++    setError(`Alliance request from ${fromId}. Use Diplomacy in Commanders to accept.`);
++  }, []);
+@@
+   const handleAcceptAlliance = (targetId) => {
+     acceptAlliance({ fromId: targetId });
++    setPendingAllianceFromIds((current) => {
++      if (!current[targetId]) return current;
++      const next = { ...current };
++      delete next[targetId];
++      return next;
++    });
+   };
+ 
+   const handleLeaveGame = () => {
+     window.localStorage.removeItem("stellcon.session");
+@@
+     setGameId(null);
+     setPlayerId(null);
+     setState(null);
+     resetOrders();
+     setSelectedId(null);
+     setMoveOriginId(null);
++    setPendingAllianceFromIds({});
+     setError("");
+   };
+@@
+           <div className="player-list">
+             {commanderPlayers.map((player) => (
+-              <PlayerCard key={player.id} player={player} highlight={player.id === playerId} />
++              <PlayerCard
++                key={player.id}
++                player={player}
++                highlight={player.id === playerId}
++                diplomacy={(() => {
++                  if (!playerId) return null;
++                  if (player.id === playerId) return null;
++                  const alliedTurns = Number(me?.alliances?.[player.id] || 0);
++                  if (alliedTurns > 0) {
++                    return {
++                      label: `Allied (${alliedTurns})`,
++                      disabled: true,
++                      title: "Alliance lasts 3 turns.",
++                      onClick: () => {},
++                    };
++                  }
++
++                  if (pendingAllianceFromIds[player.id]) {
++                    return {
++                      label: "Accept",
++                      disabled: false,
++                      title: "Accept alliance (lasts 3 turns).",
++                      onClick: () => handleAcceptAlliance(player.id),
++                    };
++                  }
++
++                  return {
++                    label: "Diplomacy",
++                    disabled: false,
++                    title: "Request alliance (lasts 3 turns).",
++                    onClick: () => handleAlliance(player.id),
++                  };
++                })()}
++              />
+             ))}
+           </div>
+           {me ? (
+             <div className="resources">
+               {RESOURCE_TYPES.map((key) => (
+*** End Patch

@@ -1,0 +1,51 @@
+*** Begin Patch
+*** Update File: apps/client/src/App.css
+@@
+-.hex.selected {
+-  z-index: 14;
+-  --hex-state-glow:
+-    drop-shadow(0 0 18px rgba(116, 242, 255, 0.55))
+-    drop-shadow(0 0 34px var(--accent-glow));
+-  transform: translate(-50%, -50%) scale(1.03);
+-}
+-
+-.hex.selected .hex-border {
+-  box-shadow:
+-    inset 0 0 0 1.6px rgba(255, 255, 255, 0.75),
+-    inset 0 0 26px rgba(0, 0, 0, 0.68),
+-    0 0 18px rgba(116, 242, 255, 0.18);
+-}
+-
+ .hex.neighbor {
+   --hex-state-glow:
+     drop-shadow(0 0 14px rgba(116, 242, 255, 0.18))
+     drop-shadow(0 0 22px rgba(116, 242, 255, 0.1));
+ }
+@@
+ .hex.placeable .hex-border {
+   box-shadow:
+     inset 0 0 0 1.6px rgba(108, 247, 178, 0.55),
+     inset 0 0 26px rgba(0, 0, 0, 0.68),
+     0 0 18px rgba(108, 247, 178, 0.12);
+ }
+ 
++.hex.selected {
++  z-index: 14;
++  --hex-state-glow:
++    drop-shadow(0 0 18px rgba(116, 242, 255, 0.55))
++    drop-shadow(0 0 34px var(--accent-glow));
++  transform: translate(-50%, -50%) scale(1.03);
++}
++
++.hex.selected .hex-border {
++  box-shadow:
++    inset 0 0 0 1.6px rgba(255, 255, 255, 0.75),
++    inset 0 0 26px rgba(0, 0, 0, 0.68),
++    0 0 18px rgba(116, 242, 255, 0.18);
++}
++
+ .hex.powerup-target {
+   z-index: 13;
+   --hex-state-glow:
+     drop-shadow(0 0 18px var(--powerup-color))
+*** End Patch

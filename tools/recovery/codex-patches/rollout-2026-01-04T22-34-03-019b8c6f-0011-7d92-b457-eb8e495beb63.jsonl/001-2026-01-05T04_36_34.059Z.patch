@@ -1,0 +1,41 @@
+*** Begin Patch
+*** Update File: apps/client/src/features/board/Board.tsx
+@@
+                       (() => {
+                         const sorted = (state.attackers || []).slice().sort((a, b) => b.fleets - a.fleets);
+                         const max = Math.max(1, ...sorted.map((entry) => Number(entry.fleets) || 0));
+                         return (
+                           <>
+                             <div className="combat-title">Skirmish</div>
+                             <div className="combat-bars">
+-                              {sorted.slice(0, 4).map((entry) => {
+-                                const color = players?.[entry.playerId]?.color || "rgba(255,255,255,0.55)";
++                              {sorted.map((entry, index) => {
++                                const playerName = entry.playerId ? players?.[entry.playerId]?.name : "Neutral";
++                                const tag =
++                                  (playerName ? String(playerName).trim().slice(0, 3) : "") ||
++                                  (entry.playerId ? String(entry.playerId).slice(0, 3) : "");
++                                const label = tag ? tag.toUpperCase() : "NEU";
++                                const color = entry.playerId ? players?.[entry.playerId]?.color : "rgba(180,190,215,0.65)";
+                                 const ratio = clamp((Number(entry.fleets) || 0) / max, 0, 1);
+                                 return (
+-                                  <div key={entry.playerId || "neutral"} className="combat-bar-row">
+-                                    <span className="combat-dot" style={{ background: color }} aria-hidden="true" />
++                                  <div key={`skirmish-${battle.targetId}-${entry.playerId ?? "neutral"}-${index}`} className="combat-bar-row">
++                                    <span className="combat-bar-label combat-skirmish-label" title={playerName || undefined}>
++                                      <span className="combat-dot" style={{ background: color }} aria-hidden="true" />
++                                      <span className="combat-skirmish-tag">{label}</span>
++                                    </span>
+                                     <span className="combat-bar-track" aria-hidden="true">
+                                       <span className="combat-bar-fill" style={{ width: `${ratio * 100}%`, background: color }} />
+                                     </span>
+                                     <span className="combat-bar-value">{entry.fleets}</span>
+                                   </div>
+                                 );
+                               })}
+                             </div>
+                           </>
+                         );
+                       })()
+                     )}
+*** End Patch
