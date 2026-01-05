@@ -1,5 +1,4 @@
-import { DEFAULT_CONFIG, HOMEWORLD_FLEETS, MAP_SIZES, PHASES, PLAYER_COLORS, POWERUPS, RESOURCE_TYPES } from "./constants.js";
-import { RESOLUTION_TRAVEL_MS } from "./constants.js";
+import { DEFAULT_CONFIG, HOMEWORLD_FLEETS, MAP_SIZES, PHASES, PLAYER_COLORS, POWERUPS, RESOURCE_TYPES, RESOLUTION_TRAVEL_MS } from "./constants.js";
 import { generateGalaxy, pickHomeworlds } from "./map.js";
 import { clamp, mulberry32, rollDie, seedToInt } from "./utils.js";
 function blankOrders() {
@@ -9,11 +8,14 @@ function now() {
     return Date.now();
 }
 export function createGame({ id, config = {}, seed = "stellcon" } = {}) {
-    const merged = { ...DEFAULT_CONFIG, ...config };
+    const gameId = typeof id === "string" && id.length > 0
+        ? id
+        : (globalThis.crypto?.randomUUID?.() ?? String(Math.random()).slice(2));
+    const merged = { ...DEFAULT_CONFIG, ...(config || {}) };
     const size = MAP_SIZES[merged.mapSize] || MAP_SIZES.medium;
     const { systems, links } = generateGalaxy({ seed, width: size.width, height: size.height });
     return {
-        id,
+        id: gameId,
         seed,
         config: merged,
         createdAt: now(),
@@ -109,15 +111,19 @@ export function addPlayer(game, { id, name, color: requestedColor } = {}) {
     if (Object.keys(game.players).length >= game.config.maxPlayers) {
         throw new Error("Game is full");
     }
+    const playerId = typeof id === "string" && id.length > 0
+        ? id
+        : (globalThis.crypto?.randomUUID?.() ?? String(Math.random()).slice(2));
     const color = pickPlayerColor(game, requestedColor);
-    game.players[id] = {
-        id,
-        name,
+    const powerups = Object.fromEntries(Object.keys(POWERUPS).map((key) => [key, { unlocked: false, charges: 0 }]));
+    game.players[playerId] = {
+        id: playerId,
+        name: String(name || ""),
         color,
         homeSystemId: null,
         income: initResources(0),
         research: initResources(0),
-        powerups: Object.fromEntries(Object.keys(POWERUPS).map((key) => [key, { unlocked: false, charges: 0 }])),
+        powerups,
         fleetsToPlace: 0,
         wormholeTurns: 0,
         alliances: {},
@@ -125,7 +131,7 @@ export function addPlayer(game, { id, name, color: requestedColor } = {}) {
         locked: false,
         orders: blankOrders(),
     };
-    return game.players[id];
+    return game.players[playerId];
 }
 export function assignHomeworlds(game) {
     const rand = mulberry32(seedToInt(game.seed));
@@ -157,10 +163,10 @@ export function startGame(game) {
     startPlanningPhase(game);
 }
 export function initResources(value) {
-    return RESOURCE_TYPES.reduce((acc, key) => {
-        acc[key] = value;
-        return acc;
-    }, {});
+    const resources = {};
+    for (const key of RESOURCE_TYPES)
+        resources[key] = value;
+    return resources;
 }
 export function computeIncome(game, playerId) {
     const totals = initResources(0);
@@ -174,10 +180,9 @@ export function computeIncome(game, playerId) {
         fleets += Math.min(...RESOURCE_TYPES.map((key) => system.resources[key] || 0));
     }
     const min = Math.min(...RESOURCE_TYPES.map((key) => totals[key]));
-    const surplus = RESOURCE_TYPES.reduce((acc, key) => {
-        acc[key] = Math.max(0, totals[key] - min);
-        return acc;
-    }, {});
+    const surplus = initResources(0);
+    for (const key of RESOURCE_TYPES)
+        surplus[key] = Math.max(0, totals[key] - min);
     return { totals, fleets, surplus };
 }
 export function startPlanningPhase(game) {
@@ -251,7 +256,8 @@ export function beginResolution(game) {
     planResolution(game);
 }
 export function finalizeResolution(game) {
-    if (game.phase !== PHASES.resolving)
+    const currentPhase = game.phase;
+    if (currentPhase !== PHASES.resolving)
         return;
     if (game.resolutionPlan?.systemUpdates) {
         applySystemUpdates(game, game.resolutionPlan.systemUpdates);
@@ -362,6 +368,8 @@ function planResolution(game) {
         const queue = [fromId];
         while (queue.length) {
             const current = queue.shift();
+            if (!current)
+                continue;
             const neighbors = game.links[current] || [];
             for (const nextId of neighbors) {
                 if (visited.has(nextId))

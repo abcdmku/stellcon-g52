@@ -1,71 +1,29 @@
+import type { GameConfig, GameState, Orders, PlayerState, ResourceMap } from "./types.js";
 export declare function createGame({ id, config, seed }?: {
-    config?: {};
+    id?: string;
+    config?: Partial<GameConfig>;
     seed?: string;
-}): {
-    id: any;
-    seed: string;
-    config: {
-        maxTurns: number;
-        mapSize: string;
-        maxPlayers: number;
-        turnSeconds: number;
-        isPrivate: boolean;
-    };
-    createdAt: number;
-    turn: number;
-    phase: string;
-    turnEndsAt: any;
-    systems: {
-        id: string;
-        q: any;
-        r: any;
-        tier: number;
-        resources: {};
-        ownerId: any;
-        fleets: number;
-        defenseNetTurns: number;
-        terraformed: boolean;
-    }[];
-    links: {};
-    players: {};
-    log: any[];
-    winnerId: any;
-};
-export declare function addPlayer(game: any, { id, name, color: requestedColor }?: {}): any;
-export declare function assignHomeworlds(game: any): void;
-export declare function startGame(game: any): void;
-export declare function initResources(value: any): {};
-export declare function computeIncome(game: any, playerId: any): {
-    totals: {};
+}): GameState;
+export declare function addPlayer(game: GameState, { id, name, color: requestedColor }?: {
+    id?: string;
+    name?: string;
+    color?: string;
+}): PlayerState;
+export declare function assignHomeworlds(game: GameState): void;
+export declare function startGame(game: GameState): void;
+export declare function initResources(value: number): ResourceMap;
+export declare function computeIncome(game: GameState, playerId: string): {
+    totals: ResourceMap;
     fleets: number;
-    surplus: {};
+    surplus: ResourceMap;
 };
-export declare function startPlanningPhase(game: any): void;
-export declare function submitOrders(game: any, playerId: any, orders: any): void;
-export declare function lockIn(game: any, playerId: any): boolean;
-export declare function beginResolution(game: any): void;
-export declare function finalizeResolution(game: any): void;
+export declare function startPlanningPhase(game: GameState): void;
+export declare function submitOrders(game: GameState, playerId: string, orders: Partial<Orders>): void;
+export declare function lockIn(game: GameState, playerId: string): boolean;
+export declare function beginResolution(game: GameState): void;
+export declare function finalizeResolution(game: GameState): void;
 export declare function resolveTurn(game: any): void;
-export declare function setAlliance(game: any, fromId: any, toId: any): void;
-export declare function isAllied(game: any, playerId: any, otherId: any): boolean;
-export declare function redactGameState(game: any, viewerId: any): {
-    id: any;
-    seed: any;
-    config: any;
-    createdAt: any;
-    turn: any;
-    phase: any;
-    turnEndsAt: any;
-    systems: any;
-    links: any;
-    players: {
-        [k: string]: any;
-    };
-    log: any;
-    winnerId: any;
-    revealedMoves: any;
-    resolutionStartedAt: any;
-    resolutionEndsAt: any;
-    resolutionBattles: any;
-};
+export declare function setAlliance(game: GameState, fromId: string, toId: string): void;
+export declare function isAllied(game: GameState, playerId: string | null, otherId: string | null): boolean;
+export declare function redactGameState(game: GameState, viewerId: string | null): GameState;
 //# sourceMappingURL=game.d.ts.map

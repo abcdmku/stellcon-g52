@@ -1,21 +1,15 @@
-export declare function generateGalaxy({ seed, width, height, density }?: {
+import type { SystemState } from "./types.js";
+type Links = Record<string, string[]>;
+type Rand = () => number;
+export declare function generateGalaxy({ seed, width, height, density, }?: {
     seed?: string;
     width?: number;
     height?: number;
     density?: number;
 }): {
-    systems: {
-        id: string;
-        q: any;
-        r: any;
-        tier: number;
-        resources: {};
-        ownerId: any;
-        fleets: number;
-        defenseNetTurns: number;
-        terraformed: boolean;
-    }[];
-    links: {};
+    systems: SystemState[];
+    links: Links;
 };
-export declare function pickHomeworlds(systems: any, count: any, rand: any): any[];
+export declare function pickHomeworlds(systems: SystemState[], count: number, rand: Rand): SystemState[];
+export {};
 //# sourceMappingURL=map.d.ts.map

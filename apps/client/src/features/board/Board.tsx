@@ -1,5 +1,7 @@
-import { memo, useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { RESOLUTION_TRAVEL_MS, RESOURCE_COLORS, RESOURCE_TYPES } from "@stellcon/shared";
+import type { MouseEvent } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { clamp, RESOLUTION_TRAVEL_MS, RESOURCE_COLORS, RESOURCE_TYPES } from "@stellcon/shared";
+import type { GameState, Orders, PowerupKey, SystemState } from "@stellcon/shared";
 import { hexToRgba } from "../../shared/lib/color";
 import { axialDistanceCoords, axialToPixel, trimLineToHexEdges } from "../../shared/lib/hex";
 
@@ -9,6 +11,31 @@ const resourceLabels = {
   terrain: "Terrain",
   metal: "Metal",
   crystal: "Crystal",
+};
+
+type BoardProps = {
+  systems: GameState["systems"];
+  links: GameState["links"];
+  players: GameState["players"];
+  orders: Orders;
+  revealedMoves?: GameState["revealedMoves"];
+  resolutionStartedAt?: GameState["resolutionStartedAt"];
+  resolutionEndsAt?: GameState["resolutionEndsAt"];
+  resolutionBattles?: GameState["resolutionBattles"];
+  phase: GameState["phase"];
+  viewerId: string | null;
+  wormholeTurns: number;
+  powerupDraft: PowerupKey | "";
+  powerupTargetIds: Set<string>;
+  powerupHighlightColor: string;
+  placementMode: boolean;
+  fleetsRemaining: number;
+  selectedId: string | null;
+  moveOriginId: string | null;
+  onSystemClick: (system: SystemState, event: MouseEvent) => void;
+  onBackgroundClick?: () => void;
+  onMoveAdjust: (index: number, delta: number) => void;
+  onMoveCancel: (index: number) => void;
 };
 
 const Board = memo(function Board({
@@ -31,9 +58,10 @@ const Board = memo(function Board({
   selectedId,
   moveOriginId,
   onSystemClick,
+  onBackgroundClick,
   onMoveAdjust,
   onMoveCancel,
-}) {
+}: BoardProps) {
   const [scale, setScale] = useState(1);
   const [offset, setOffset] = useState({ x: 0, y: 0 });
   const boardRef = useRef(null);

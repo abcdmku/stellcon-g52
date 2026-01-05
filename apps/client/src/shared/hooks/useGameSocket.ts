@@ -30,9 +30,11 @@ export function useGameSocket(serverUrl: string, demoMode: boolean, callbacks: S
 
   useEffect(() => {
     if (demoMode) return;
-    const nextSocket: GameSocket = io(serverUrl, { transports: ["websocket"] });
+    const nextSocket: GameSocket = io(serverUrl);
     setSocket(nextSocket);
-    return () => nextSocket.disconnect();
+    return () => {
+      nextSocket.disconnect();
+    };
   }, [demoMode, serverUrl]);
 
   useEffect(() => {

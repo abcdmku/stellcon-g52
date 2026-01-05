@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { buildConnectedComponentIndex, inSameConnectedComponent, POWERUPS, RESOURCE_COLORS, RESOURCE_TYPES } from "@stellcon/shared";
 import type { GameListItem, GameState, Orders, PowerupKey } from "@stellcon/shared";
 import { demoPlayerId, demoState } from "./demoState.js";
-import Board from "./features/board/Board.tsx";
+import Board from "./features/board/Board";
 import Lobby from "./features/lobby/Lobby.jsx";
 import PlayerCard from "./features/lobby/PlayerCard.jsx";
 import { emptyOrders } from "./shared/lib/orders";
@@ -33,7 +33,7 @@ const powerupHelp = {
   wormhole: "Place on any of your systems; lets you move from any of your systems to anywhere on the map.",
 };
 
-function FleetIcon({ size = 14 } = {}) {
+function FleetIcon({ size = 14 }: { size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true" focusable="false">
       <path
@@ -44,7 +44,7 @@ function FleetIcon({ size = 14 } = {}) {
   );
 }
 
-function PowerupIcon({ type, size = 18 } = {}) {
+function PowerupIcon({ type, size = 18 }: { type: PowerupKey; size?: number }) {
   const common = { width: size, height: size, viewBox: "0 0 24 24", "aria-hidden": true, focusable: false };
   switch (type) {
     case "stellarBomb":
@@ -93,7 +93,7 @@ function PowerupIcon({ type, size = 18 } = {}) {
 }
 
 function App() {
-  const [state, setState] = useState<GameState | null>(DEMO_MODE ? (demoState as GameState) : null);
+  const [state, setState] = useState<GameState | null>(DEMO_MODE ? (demoState as unknown as GameState) : null);
   const [playerId, setPlayerId] = useState<string | null>(DEMO_MODE ? demoPlayerId : null);
   const [gameId, setGameId] = useState<string | null>(DEMO_MODE ? demoState.id : null);
   const [error, setError] = useState("");
@@ -218,7 +218,7 @@ function App() {
     const fromUrl = new URLSearchParams(window.location.search).get("game");
     if (fromUrl) {
       watchGame({ gameId: fromUrl }, (response) => {
-        if (response?.error) setError(response.error);
+        if (response && "error" in response) setError(response.error);
       });
       setGameId(fromUrl);
       return;
@@ -229,7 +229,7 @@ function App() {
       const parsed = JSON.parse(stored);
       if (!parsed?.gameId || !parsed?.playerId) return;
       rejoinGame({ gameId: parsed.gameId, playerId: parsed.playerId }, (response) => {
-        if (response?.error) {
+        if (!response || "error" in response) {
           window.localStorage.removeItem("stellcon.session");
           return;
         }
@@ -282,7 +282,11 @@ function App() {
     if (!socket) return;
     setError("");
     createGame({ name, config, color }, (response) => {
-      if (response?.error) {
+      if (!response) {
+        setError("No response from server.");
+        return;
+      }
+      if ("error" in response) {
         setError(response.error);
         return;
       }
@@ -303,7 +307,11 @@ function App() {
     if (!socket) return;
     setError("");
     joinGame({ name, gameId: target, color }, (response) => {
-      if (response?.error) {
+      if (!response) {
+        setError("No response from server.");
+        return;
+      }
+      if ("error" in response) {
         setError(response.error);
         return;
       }
@@ -324,7 +332,7 @@ function App() {
     if (!socket) return;
     setError("");
     watchGame({ gameId: target }, (response) => {
-      if (response?.error) {
+      if (response && "error" in response) {
         setError(response.error);
         return;
       }
@@ -363,14 +371,14 @@ function App() {
   );
 
   const powerupTargetIds = useMemo(() => {
-    if (!playerId) return new Set();
-    if (!powerupDraft) return new Set();
-    if (state?.phase !== "planning") return new Set();
+    if (!playerId) return new Set<string>();
+    if (!powerupDraft) return new Set<string>();
+    if (state?.phase !== "planning") return new Set<string>();
     const powerup = POWERUPS[powerupDraft];
-    if (!powerup) return new Set();
-    if ((me?.research?.[powerup.resource] || 0) < powerup.cost) return new Set();
+    if (!powerup) return new Set<string>();
+    if ((me?.research?.[powerup.resource] || 0) < powerup.cost) return new Set<string>();
 
-    const targets = new Set();
+    const targets = new Set<string>();
     for (const system of systems) {
       if (powerupDraft === "defenseNet") {
         if (system.ownerId === playerId) targets.add(system.id);
@@ -540,7 +548,7 @@ function App() {
 
   const handleLockIn = () => {
     lockIn((response) => {
-      if (response?.error) setError(response.error);
+      if (response && "error" in response) setError(response.error);
     });
   };
 
