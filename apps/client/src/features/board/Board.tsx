@@ -6,6 +6,9 @@ import { hexToRgba } from "../../shared/lib/color";
 import { axialDistanceCoords, axialToPixel, trimLineToHexEdges } from "../../shared/lib/hex";
 
 const HEX_SIZE = 56;
+const MIN_SCALE = 0.35;
+const MAX_SCALE = 3;
+const FIT_MAX_SCALE = 1.15;
 const MOVE_LINE_START_PAD = 2;
 const MOVE_LINE_END_PAD = 18;
 const MOVE_LINE_START_TOWARD_EDGE = 0.5;
@@ -90,12 +93,17 @@ const Board = memo(function Board({
   const scaleRef = useRef(scale);
   const panRaf = useRef(0);
   const pointerIdRef = useRef(null);
+  const redrawTimeoutRef = useRef<number | null>(null);
 
-  const applyCanvasTransform = useCallback(() => {
+  const applyCanvasTransform = useCallback((forceRedraw = false) => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const currentScale = scaleRef.current || 1;
     const currentOffset = offsetRef.current || { x: 0, y: 0 };
+    if (forceRedraw) {
+      canvas.style.transform = "none";
+      canvas.getBoundingClientRect();
+    }
     canvas.style.transform = `translate(${currentOffset.x}px, ${currentOffset.y}px) scale(${currentScale})`;
   }, []);
 
@@ -108,6 +116,19 @@ const Board = memo(function Board({
     scaleRef.current = scale;
     applyCanvasTransform();
   }, [applyCanvasTransform, scale]);
+
+  useEffect(() => {
+    return () => {
+      if (redrawTimeoutRef.current) {
+        window.clearTimeout(redrawTimeoutRef.current);
+        redrawTimeoutRef.current = null;
+      }
+      if (panRaf.current) {
+        cancelAnimationFrame(panRaf.current);
+        panRaf.current = 0;
+      }
+    };
+  }, []);
   const mapBoundsKey = useMemo(() => {
     if (!systems?.length) return "empty";
     let minQ = Number.POSITIVE_INFINITY;
@@ -238,7 +259,11 @@ const Board = memo(function Board({
     const availableWidth = Math.max(1, safeRight - safeLeft);
     const availableHeight = Math.max(1, safeBottom - safeTop);
 
-    const nextScale = clamp(Math.min(availableWidth / contentWidth, availableHeight / contentHeight), 0.35, 1.15);
+    const nextScale = clamp(
+      Math.min(availableWidth / contentWidth, availableHeight / contentHeight),
+      MIN_SCALE,
+      FIT_MAX_SCALE
+    );
     const centerX = (minX + maxX) / 2;
     const centerY = (minY + maxY) / 2;
 
@@ -630,11 +655,34 @@ const Board = memo(function Board({
   const handleWheel = (event) => {
     event.preventDefault();
     cameraTouched.current = true;
+
+    const boardEl = boardRef.current;
+    if (!boardEl) return;
+
+    const currentScale = scaleRef.current || 1;
+    const currentOffset = offsetRef.current || { x: 0, y: 0 };
+    const rect = boardEl.getBoundingClientRect();
+    const anchorX = event.clientX - (rect.left + rect.width / 2);
+    const anchorY = event.clientY - (rect.top + rect.height / 2);
+
     const delta = event.deltaY > 0 ? -0.08 : 0.08;
-    const next = Math.min(1.6, Math.max(0.35, (scaleRef.current || 1) + delta));
-    if (next === scaleRef.current) return;
-    scaleRef.current = next;
-    setScale(next);
+    const nextScale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, currentScale + delta));
+    if (nextScale === currentScale) return;
+
+    const worldX = (anchorX - currentOffset.x) / currentScale;
+    const worldY = (anchorY - currentOffset.y) / currentScale;
+    const nextOffset = { x: anchorX - worldX * nextScale, y: anchorY - worldY * nextScale };
+
+    scaleRef.current = nextScale;
+    offsetRef.current = nextOffset;
+    setScale(nextScale);
+    setOffset(nextOffset);
+
+    if (redrawTimeoutRef.current) window.clearTimeout(redrawTimeoutRef.current);
+    redrawTimeoutRef.current = window.setTimeout(() => {
+      redrawTimeoutRef.current = null;
+      applyCanvasTransform(true);
+    }, 120);
     if (!panRaf.current) {
       panRaf.current = requestAnimationFrame(() => {
         panRaf.current = 0;
