@@ -36,11 +36,11 @@ function normalizePlayerName(value: string) {
     .replace(/\s+/g, " ");
 }
 
-function ensureUniqueName(game: ServerGame, proposedName: string) {
+function ensureUniqueName(game: GameState, proposedName: string) {
   const name = normalizePlayerName(proposedName);
   if (!name) throw new Error("Name is required");
   const lower = name.toLowerCase();
-  for (const player of Object.values(game.players || {})) {
+  for (const player of Object.values(game.players)) {
     if (normalizePlayerName(player.name).toLowerCase() === lower) {
       throw new Error("Name already taken in this game");
     }
@@ -126,9 +126,9 @@ export function registerSocketHandlers(io: IO, store: GameStore) {
   };
 
   io.on("connection", (socket: GameSocket) => {
-    socket.on("createGame", (payload = {}, callback) => {
+    socket.on("createGame", (payload, callback) => {
       try {
-        const { name, config, color } = payload || {};
+        const { name, config, color } = payload;
         const gameId = nanoid(6).toUpperCase();
         const game = createGame({ id: gameId, config, seed: `stellcon-${gameId}` });
         store.games.set(gameId, game);
@@ -150,9 +150,9 @@ export function registerSocketHandlers(io: IO, store: GameStore) {
       }
     });
 
-    socket.on("joinGame", (payload = {}, callback) => {
+    socket.on("joinGame", (payload, callback) => {
       try {
-        const { gameId, name, color } = payload || {};
+        const { gameId, name, color } = payload;
         const game = ensureGame(store, gameId);
         if (Object.keys(game.players).length >= game.config.maxPlayers) {
           throw new Error("Game is full");
@@ -178,9 +178,9 @@ export function registerSocketHandlers(io: IO, store: GameStore) {
       callback?.({ games: list });
     });
 
-    socket.on("watchGame", (payload = {}, callback) => {
+    socket.on("watchGame", (payload, callback) => {
       try {
-        const { gameId } = payload || {};
+        const { gameId } = payload;
         ensureGame(store, gameId);
         trackSession(store, socket.id, { gameId, playerId: null });
         socket.join(`game:${gameId}`);
@@ -191,9 +191,9 @@ export function registerSocketHandlers(io: IO, store: GameStore) {
       }
     });
 
-    socket.on("rejoinGame", (payload = {}, callback) => {
+    socket.on("rejoinGame", (payload, callback) => {
       try {
-        const { gameId, playerId } = payload || {};
+        const { gameId, playerId } = payload;
         const game = ensureGame(store, gameId);
         const player = game.players[playerId];
         if (!player) throw new Error("Player not found");
@@ -209,14 +209,14 @@ export function registerSocketHandlers(io: IO, store: GameStore) {
       }
     });
 
-    socket.on("updateOrders", (payload = {}, callback) => {
+    socket.on("updateOrders", (payload, callback) => {
       try {
-        const { orders } = payload || {};
+        const { orders } = payload;
         const session = getSession(store, socket.id);
         if (!session) throw new Error("Not in game");
         if (!session.playerId) throw new Error("Spectators cannot submit orders");
         const game = ensureGame(store, session.gameId);
-        submitOrders(game, session.playerId, orders || {});
+        submitOrders(game, session.playerId, orders);
         emitState(game.id);
         callback?.({ ok: true });
       } catch (error) {
@@ -242,9 +242,9 @@ export function registerSocketHandlers(io: IO, store: GameStore) {
       }
     });
 
-    socket.on("requestAlliance", (payload = {}, callback) => {
+    socket.on("requestAlliance", (payload, callback) => {
       try {
-        const { targetId } = payload || {};
+        const { targetId } = payload;
         const session = getSession(store, socket.id);
         if (!session) throw new Error("Not in game");
         if (!session.playerId) throw new Error("Spectators cannot request alliances");
@@ -263,9 +263,9 @@ export function registerSocketHandlers(io: IO, store: GameStore) {
       }
     });
 
-    socket.on("acceptAlliance", (payload = {}, callback) => {
+    socket.on("acceptAlliance", (payload, callback) => {
       try {
-        const { fromId } = payload || {};
+        const { fromId } = payload;
         const session = getSession(store, socket.id);
         if (!session) throw new Error("Not in game");
         if (!session.playerId) throw new Error("Spectators cannot accept alliances");

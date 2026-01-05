@@ -27,8 +27,23 @@ process.on("unhandledRejection", (reason) => {
 });
 
 const { forceResolveIfExpired } = registerSocketHandlers(io, store);
-setInterval(forceResolveIfExpired, 1000);
+const resolveInterval = setInterval(forceResolveIfExpired, 1000);
 
 server.listen(PORT, () => {
   console.log(`StellCon server running on ${PORT}`);
 });
+
+let shuttingDown = false;
+const shutdown = (signal: string) => {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  clearInterval(resolveInterval);
+  io.close();
+  server.close(() => {
+    process.exit(0);
+  });
+  setTimeout(() => process.exit(1), 2000).unref();
+};
+
+process.on("SIGTERM", () => shutdown("SIGTERM"));
+process.on("SIGINT", () => shutdown("SIGINT"));
