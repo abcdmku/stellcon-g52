@@ -70,24 +70,33 @@ export default function Lobby({ onCreate, onJoin, onWatch, isBusy, games }) {
 
   return (
     <>
-      <div className="lobby-title">StellCon Command Nexus</div>
-      <p className="lobby-subtitle">Choose a callsign, then join a public game or create your own sector.</p>
-
+      {mode === "create" ? (
+        <div className="lobby-header">
+          <div className="lobby-title">Create Game</div>
+          <label className="visibility-toggle" title="Public games show up in the lobby list">
+            Public
+            <input
+              type="checkbox"
+              checked={!isPrivate}
+              onChange={(event) => setIsPrivate(!event.target.checked)}
+            />
+          </label>
+        </div>
+      ) : (
+        <div className="lobby-title">Lobby</div>
+      )}
       <div className="lobby-grid">
-        <label>
+        <label className="name-row">
           Commander Name (unique per game)
-          <input value={name} onChange={(event) => setName(event.target.value)} placeholder="Commander" />
-        </label>
-        {mode === "create" ? (
-          <label className="color-picker">
-            Color
-            <div className="color-row" role="listbox" aria-label="Player color">
+          <div className="name-input-row">
+            <input value={name} onChange={(event) => setName(event.target.value)} placeholder="Commander" />
+            <div className="color-row-inline" role="listbox" aria-label="Player color">
               {PLAYER_COLORS.map((value) => (
                 <button
                   key={value}
                   type="button"
-                  className={`color-swatch ${color === value ? "active" : ""}`}
-                  style={{ background: value }}
+                  className={`color-hex ${color === value ? "active" : ""}`}
+                  style={{ "--swatch-color": value }}
                   onClick={() => setColor(value)}
                   aria-label={`Color ${value}`}
                   aria-selected={color === value}
@@ -95,29 +104,8 @@ export default function Lobby({ onCreate, onJoin, onWatch, isBusy, games }) {
                 />
               ))}
             </div>
-          </label>
-        ) : null}
-      </div>
-
-      <div className="lobby-tabs" role="tablist" aria-label="Lobby mode">
-        <button
-          type="button"
-          className={`lobby-tab ${mode === "join" ? "active" : ""}`}
-          onClick={() => setMode("join")}
-          role="tab"
-          aria-selected={mode === "join"}
-        >
-          Join Game
-        </button>
-        <button
-          type="button"
-          className={`lobby-tab ${mode === "create" ? "active" : ""}`}
-          onClick={() => setMode("create")}
-          role="tab"
-          aria-selected={mode === "create"}
-        >
-          Create Game
-        </button>
+          </div>
+        </label>
       </div>
 
       {mode === "join" ? (
@@ -134,26 +122,38 @@ export default function Lobby({ onCreate, onJoin, onWatch, isBusy, games }) {
           <div className="muted" style={{ marginTop: 10 }}>
             Private games are joined via a shared link (the URL includes `?game=XXXXXX`).
           </div>
+          <div className="lobby-actions">
+            <button type="button" className="secondary" onClick={() => setMode("create")}>
+              Create New Game
+            </button>
+          </div>
         </>
       ) : (
         <>
-          <div className="lobby-grid">
-            <label className="range">
-              Players <span className="range-value">{maxPlayers}</span>
-              <input
-                type="range"
-                min="2"
-                max="6"
-                step="1"
-                value={maxPlayers}
-                onChange={(event) => setMaxPlayers(Number(event.target.value))}
-              />
-              <div className="range-steps" aria-hidden="true">
+          <div className="create-header">
+            <div className="lobby-subtitle">Game settings</div>
+          </div>
+
+          <div className="lobby-grid create-grid">
+            <div className="players-row" role="group" aria-label="Max players">
+              <div className="players-row-label">
+                Players <span className="players-value">{maxPlayers}</span>
+              </div>
+              <div className="players-segment" role="radiogroup" aria-label="Players">
                 {[2, 3, 4, 5, 6].map((value) => (
-                  <span key={value} className={value === maxPlayers ? "active" : ""} />
+                  <button
+                    key={value}
+                    type="button"
+                    className={`players-pill ${value === maxPlayers ? "active" : ""}`}
+                    onClick={() => setMaxPlayers(value)}
+                    aria-pressed={value === maxPlayers}
+                  >
+                    {value}
+                  </button>
                 ))}
               </div>
-            </label>
+            </div>
+
             <label>
               Map Size
               <select value={mapSize} onChange={(event) => setMapSize(event.target.value)}>
@@ -163,14 +163,6 @@ export default function Lobby({ onCreate, onJoin, onWatch, isBusy, games }) {
                   </option>
                 ))}
               </select>
-            </label>
-            <label className="toggle">
-              Visibility: {isPrivate ? "Private" : "Public"}
-              <input
-                type="checkbox"
-                checked={!isPrivate}
-                onChange={(event) => setIsPrivate(!event.target.checked)}
-              />
             </label>
             <label>
               Max Turns
@@ -183,7 +175,7 @@ export default function Lobby({ onCreate, onJoin, onWatch, isBusy, games }) {
               />
             </label>
             <label>
-              Turn Seconds
+              Turn Length (s)
               <input
                 type="number"
                 min="30"
