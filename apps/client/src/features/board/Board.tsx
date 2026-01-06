@@ -15,6 +15,7 @@ const MOVE_LINE_START_TOWARD_EDGE = 0.5;
 const MOVE_BADGE_SCALE = 0.78;
 const MOVE_BADGE_POINTS = "-16,-11 16,0 -16,11 -10,0";
 const MOVE_VERTICAL_RATIO = 0.35;
+const RESOURCE_MAX = 5;
 
 function computeMoveCurveControlPoint(dx: number, len: number, mx: number, my: number, arch: number) {
   if (len <= 0.001) return { cx: mx, cy: my };
@@ -28,6 +29,13 @@ const resourceLabels = {
   metal: "Metal",
   crystal: "Crystal",
 };
+
+const resourceAngles = {
+  fusion: -55,
+  terrain: -20,
+  metal: 20,
+  crystal: 55,
+} as const;
 
 type BoardProps = {
   systems: GameState["systems"];
@@ -94,6 +102,14 @@ const Board = memo(function Board({
   const panRaf = useRef(0);
   const pointerIdRef = useRef(null);
   const redrawTimeoutRef = useRef<number | null>(null);
+  const rasterBustRef = useRef(false);
+
+  const bustHexRasterization = useCallback(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    rasterBustRef.current = !rasterBustRef.current;
+    canvas.style.setProperty("--hex-raster-z", rasterBustRef.current ? "0.01px" : "0px");
+  }, []);
 
   const applyCanvasTransform = useCallback((forceRedraw = false) => {
     const canvas = canvasRef.current;
@@ -115,7 +131,8 @@ const Board = memo(function Board({
   useLayoutEffect(() => {
     scaleRef.current = scale;
     applyCanvasTransform();
-  }, [applyCanvasTransform, scale]);
+    bustHexRasterization();
+  }, [applyCanvasTransform, bustHexRasterization, scale]);
 
   useEffect(() => {
     return () => {
@@ -239,14 +256,30 @@ const Board = memo(function Board({
     const topHud = document.querySelector(".overlay-top");
     const bottomHud = document.querySelector(".overlay-bottom");
 
-    if (leftHud) {
-      const r = leftHud.getBoundingClientRect();
-      safeLeft = Math.max(safeLeft, r.right - rect.left + overlayGap);
-    }
-    if (rightHud) {
-      const r = rightHud.getBoundingClientRect();
-      safeRight = Math.min(safeRight, r.left - rect.left - overlayGap);
-    }
+    const applyHudSafeArea = (hudRect: DOMRect, side: "left" | "right") => {
+      if (hudRect.bottom <= rect.top || hudRect.top >= rect.bottom) return;
+
+      const spansMostWidth = hudRect.width >= rect.width * 0.7;
+      if (!spansMostWidth) {
+        if (side === "left") {
+          safeLeft = Math.max(safeLeft, hudRect.right - rect.left + overlayGap);
+        } else {
+          safeRight = Math.min(safeRight, hudRect.left - rect.left - overlayGap);
+        }
+        return;
+      }
+
+      const nearTop = hudRect.top <= rect.top + margin * 2;
+      const nearBottom = hudRect.bottom >= rect.bottom - margin * 2;
+      if (nearTop) {
+        safeTop = Math.max(safeTop, hudRect.bottom - rect.top + overlayGap);
+      } else if (nearBottom) {
+        safeBottom = Math.min(safeBottom, hudRect.top - rect.top - overlayGap);
+      }
+    };
+
+    if (leftHud) applyHudSafeArea(leftHud.getBoundingClientRect(), "left");
+    if (rightHud) applyHudSafeArea(rightHud.getBoundingClientRect(), "right");
     if (topHud) {
       const r = topHud.getBoundingClientRect();
       safeTop = Math.max(safeTop, r.bottom - rect.top + overlayGap);
@@ -677,11 +710,13 @@ const Board = memo(function Board({
     offsetRef.current = nextOffset;
     setScale(nextScale);
     setOffset(nextOffset);
+    bustHexRasterization();
 
     if (redrawTimeoutRef.current) window.clearTimeout(redrawTimeoutRef.current);
     redrawTimeoutRef.current = window.setTimeout(() => {
       redrawTimeoutRef.current = null;
       applyCanvasTransform(true);
+      bustHexRasterization();
     }, 120);
     if (!panRaf.current) {
       panRaf.current = requestAnimationFrame(() => {
@@ -694,7 +729,6 @@ const Board = memo(function Board({
   const handlePointerDown = (event) => {
     if (event.target.closest) {
       if (event.target.closest("button")) return;
-      if (event.target.closest(".hex")) return;
     }
     cameraTouched.current = true;
     dragging.current = true;
@@ -1016,13 +1050,15 @@ const Board = memo(function Board({
               <div className="hex-resources" aria-label="Resources">
                 {RESOURCE_TYPES.map((key) => {
                   const value = system.resources?.[key] ?? 0;
-                  const fill = Math.max(0, Math.min(1, value / 12));
+                  const fill = clamp(value / RESOURCE_MAX, 0, 1);
+                  const level = value <= 0 ? "None" : `${Math.min(value, RESOURCE_MAX)}/${RESOURCE_MAX}`;
                   return (
                     <div
                       key={key}
                       className={`hex-res res-${key}`}
-                      title={`${resourceLabels[key]}: ${value}`}
-                      style={{ "--fill": String(fill) }}
+                      aria-label={`${resourceLabels[key]}: ${level}`}
+                      title={`${resourceLabels[key]}: ${level}`}
+                      style={{ "--fill": String(fill), "--angle": `${resourceAngles[key]}deg` }}
                     />
                   );
                 })}

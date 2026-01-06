@@ -98,6 +98,7 @@ function App() {
   const [gameId, setGameId] = useState<string | null>(DEMO_MODE ? demoState.id : null);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [endgameDismissed, setEndgameDismissed] = useState(false);
   const { orders, resetOrders, replaceOrders, applyPlacement, queuePowerup, queueMove, removeMove, adjustMove } =
     useOrders(DEMO_MODE ? (demoState.players[demoPlayerId].orders as Orders) : emptyOrders());
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -126,8 +127,9 @@ function App() {
 
         lastSeenTurnRef.current = { turn: gameState.turn, phase: gameState.phase };
       }
-      if (!selectedId && gameState?.systems?.length) {
-        setSelectedId(gameState.systems[0].id);
+      if (selectedId && gameState?.systems?.length) {
+        const stillExists = gameState.systems.some((system) => system.id === selectedId);
+        if (!stillExists) setSelectedId(null);
       }
     },
     [playerId, replaceOrders, selectedId]
@@ -203,6 +205,15 @@ function App() {
   }, [state?.phase]);
 
   useEffect(() => {
+    if (state?.phase !== "complete") setEndgameDismissed(false);
+  }, [state?.phase]);
+
+  useEffect(() => {
+    setEndgameDismissed(false);
+    setSelectedId(null);
+  }, [gameId]);
+
+  useEffect(() => {
     if (!powerupDraft) return;
     const handleKeyDown = (event) => {
       if (event.key !== "Escape") return;
@@ -236,6 +247,7 @@ function App() {
         setGameId(response.gameId);
         setPlayerId(response.playerId);
         resetOrders();
+        setSelectedId(null);
       });
     } catch {
       window.localStorage.removeItem("stellcon.session");
@@ -293,6 +305,7 @@ function App() {
       setPlayerId(response.playerId);
       setGameId(response.gameId);
       resetOrders();
+      setSelectedId(null);
       window.localStorage.setItem(
         "stellcon.session",
         JSON.stringify({ gameId: response.gameId, playerId: response.playerId })
@@ -318,6 +331,7 @@ function App() {
       setPlayerId(response.playerId);
       setGameId(response.gameId);
       resetOrders();
+      setSelectedId(null);
       window.localStorage.setItem(
         "stellcon.session",
         JSON.stringify({ gameId: response.gameId, playerId: response.playerId })
@@ -339,6 +353,7 @@ function App() {
       setPlayerId(null);
       setGameId(target);
       resetOrders();
+      setSelectedId(null);
       const params = new URLSearchParams(window.location.search);
       params.set("game", target);
       window.history.replaceState(null, "", `?${params.toString()}`);
@@ -581,6 +596,18 @@ function App() {
     setError("");
   };
 
+  const handleNewMatch = () => {
+    if (!socket || !state) return;
+    const rawName = window.localStorage.getItem("stellcon.name") || me?.name || "";
+    const name = rawName.trim().replace(/\s+/g, " ");
+    const color = window.localStorage.getItem("stellcon.color") || me?.color || "";
+    if (name.length < 2) {
+      handleLeaveGame();
+      return;
+    }
+    handleCreate({ name, config: state.config, color });
+  };
+
   if (!gameId) {
     return (
       <div className="lobby">
@@ -621,15 +648,11 @@ function App() {
   });
   const rankedPlayers = [...players].sort((a, b) => b.systemCount - a.systemCount);
   const isComplete = state.phase === "complete";
+  const winnerPlayer = (state.winnerId ? players.find((player) => player.id === state.winnerId) : null) || rankedPlayers[0] || null;
 
   return (
     <div className="app">
       <div className="overlay-top">
-        <div className="top-actions">
-          <button type="button" onClick={handleLeaveGame} className="secondary">
-            Return to Lobby
-          </button>
-        </div>
         {error ? <div className="alert">{error}</div> : null}
         {notice ? <div className="notice">{notice}</div> : null}
         {powerupDraft ? (
@@ -639,13 +662,23 @@ function App() {
         ) : null}
       </div>
 
-      {isComplete ? (
+      {isComplete && !endgameDismissed ? (
         <div className="endgame">
           <div className="endgame-card">
+            <button type="button" className="endgame-close" onClick={() => setEndgameDismissed(true)} aria-label="Close">
+              ×
+            </button>
+            <div className="endgame-winner">
+              <div className="endgame-winner-title">
+                <FleetIcon size={16} /> Winner
+              </div>
+              <div className="endgame-winner-name">{winnerPlayer?.name || "Unknown"}</div>
+              <div className="endgame-winner-meta">{winnerPlayer?.systemCount ?? 0} systems</div>
+            </div>
             <div className="panel-title">Final Rankings</div>
             <div className="endgame-list">
               {rankedPlayers.map((player, index) => (
-                <div key={player.id} className="endgame-row">
+                <div key={player.id} className={`endgame-row${player.id === winnerPlayer?.id ? " winner" : ""}`}>
                   <span>
                     {index + 1}. {player.name}
                   </span>
@@ -653,52 +686,62 @@ function App() {
                 </div>
               ))}
             </div>
+            <div className="endgame-actions">
+              <button type="button" onClick={handleNewMatch}>
+                New Match
+              </button>
+              <button type="button" className="secondary" onClick={handleLeaveGame}>
+                Return to Lobby
+              </button>
+            </div>
           </div>
         </div>
       ) : null}
 
       <div className="overlay-hud">
         <aside className="overlay-section left">
-          <div className="panel-title">Commanders</div>
-          <div className="game-code">Game Code: {gameId}</div>
-          <div className="player-list">
-            {commanderPlayers.map((player) => (
-              <PlayerCard
-                key={player.id}
-                player={player}
-                highlight={player.id === playerId}
-                diplomacy={(() => {
-                  if (!playerId) return null;
-                  if (player.id === playerId) return null;
+          <div className="panel left-commanders-card">
+            <div className="panel-title">Commanders</div>
+            <div className="game-code">Game Code: {gameId}</div>
+            <div className="player-list">
+              {commanderPlayers.map((player) => (
+                <PlayerCard
+                  key={player.id}
+                  player={player}
+                  highlight={player.id === playerId}
+                  diplomacy={(() => {
+                    if (!playerId) return null;
+                    if (player.id === playerId) return null;
 
-                  const alliedTurns = Number(me?.alliances?.[player.id] || 0);
-                  if (alliedTurns > 0) {
-                    return {
-                      label: `Allied (${alliedTurns})`,
-                      disabled: true,
-                      title: "Alliance lasts 3 turns.",
-                      onClick: () => {},
-                    };
-                  }
+                    const alliedTurns = Number(me?.alliances?.[player.id] || 0);
+                    if (alliedTurns > 0) {
+                      return {
+                        label: `Allied (${alliedTurns})`,
+                        disabled: true,
+                        title: "Alliance lasts 3 turns.",
+                        onClick: () => {},
+                      };
+                    }
 
-                  if (pendingAllianceFromIds[player.id]) {
+                    if (pendingAllianceFromIds[player.id]) {
+                      return {
+                        label: "Accept",
+                        disabled: false,
+                        title: "Accept alliance (lasts 3 turns).",
+                        onClick: () => handleAcceptAlliance(player.id),
+                      };
+                    }
+
                     return {
-                      label: "Accept",
+                      label: "Diplomacy",
                       disabled: false,
-                      title: "Accept alliance (lasts 3 turns).",
-                      onClick: () => handleAcceptAlliance(player.id),
+                      title: "Request alliance (lasts 3 turns).",
+                      onClick: () => handleAlliance(player.id),
                     };
-                  }
-
-                  return {
-                    label: "Diplomacy",
-                    disabled: false,
-                    title: "Request alliance (lasts 3 turns).",
-                    onClick: () => handleAlliance(player.id),
-                  };
-                })()}
-              />
-            ))}
+                  })()}
+                />
+              ))}
+            </div>
           </div>
         </aside>
 
@@ -730,59 +773,73 @@ function App() {
         </section>
 
         <aside className="overlay-section right">
-          <div className="panel-subtitle">Fleet Placement</div>
-          <div className="panel-row">
-            <button
-              type="button"
-              className={`bottom-placement ${placementMode ? "active" : ""}`}
-              onClick={handleTogglePlacementMode}
-              disabled={!playerId || state.phase !== "planning" || fleetsRemaining <= 0}
-              aria-pressed={placementMode}
-              title={placementMode ? "Placement mode active" : "Enter placement mode"}
-            >
-              <FleetIcon />
-              <span className="bottom-placement-count">{fleetsRemaining}</span>
-            </button>
-            <div className="muted">Click one of your systems to place 1 fleet.</div>
-          </div>
+          <div className="right-actions-stack">
+            <div className="top-actions right-actions-top">
+              <button type="button" onClick={handleLeaveGame} className="secondary">
+                Return to Lobby
+              </button>
+            </div>
 
-          <div className="panel-subtitle">Powerups</div>
-          <div className="powerup-grid">
-            {Object.values(POWERUPS).map((powerup) => {
-              const points = Number(me?.research?.[powerup.resource] || 0);
-              const ratio = clamp(points / powerup.cost, 0, 1);
-              const canUse = !!playerId && state.phase === "planning" && points >= powerup.cost;
-              return (
-                <div key={powerup.key} className="powerup-row">
-                  <button
-                    type="button"
-                    className={`${powerupDraft === powerup.key ? "active" : ""} ${canUse ? "available" : ""}`}
-                    disabled={!playerId || state.phase !== "planning"}
-                    onClick={() => {
-                      setPlacementMode(false);
-                      setMoveOriginId(null);
-                      setPowerupDraft((current) => (current === powerup.key ? "" : powerup.key));
-                    }}
-                    aria-label={`${powerup.label}: ${points}/${powerup.cost} ${resourceLabels[powerup.resource]}`}
-                    title={`${powerup.label}: ${points}/${powerup.cost} ${resourceLabels[powerup.resource]}`}
-                    style={{ "--res-color": RESOURCE_COLORS[powerup.resource] || "rgba(255,255,255,0.6)" }}
-                  >
-                    <span className="powerup-label">{powerup.label}</span>
-                    <span className="cost">{canUse ? "Ready" : `${powerup.cost} ${resourceLabels[powerup.resource]}`}</span>
-                    <span className="powerup-progress" aria-label={`${powerup.label} resource progress`}>
-                      <span className="powerup-progress-track" aria-hidden="true">
-                        <span className="powerup-progress-fill" style={{ width: `${ratio * 100}%` }} />
-                      </span>
-                      <span className="powerup-progress-label">
-                        {Math.min(points, powerup.cost)}/{powerup.cost}
-                      </span>
-                    </span>
-                  </button>
-                </div>
-              );
-            })}
+            <div className="panel right-actions-card">
+              <div className="panel-subtitle">Fleet Placement</div>
+              <div className="panel-row">
+                <button
+                  type="button"
+                  className={`bottom-placement ${placementMode ? "active" : ""}`}
+                  onClick={handleTogglePlacementMode}
+                  disabled={!playerId || state.phase !== "planning" || fleetsRemaining <= 0}
+                  aria-pressed={placementMode}
+                  title={placementMode ? "Placement mode active" : "Enter placement mode"}
+                >
+                  <FleetIcon />
+                  <span className="bottom-placement-count">{fleetsRemaining}</span>
+                </button>
+                <div className="muted">Click one of your systems to place 1 fleet.</div>
+              </div>
+
+              <div className="panel-subtitle">Powerups</div>
+              <div className="powerup-grid">
+                {Object.values(POWERUPS).map((powerup) => {
+                  const points = Number(me?.research?.[powerup.resource] || 0);
+                  const ratio = clamp(points / powerup.cost, 0, 1);
+                  const canUse = !!playerId && state.phase === "planning" && points >= powerup.cost;
+                  return (
+                    <div key={powerup.key} className="powerup-row">
+                      <button
+                        type="button"
+                        className={`${powerupDraft === powerup.key ? "active" : ""} ${canUse ? "available" : ""}`}
+                        disabled={!playerId || state.phase !== "planning"}
+                        onClick={() => {
+                          setPlacementMode(false);
+                          setMoveOriginId(null);
+                          setPowerupDraft((current) => (current === powerup.key ? "" : powerup.key));
+                        }}
+                        aria-label={`${powerup.label}: ${points}/${powerup.cost} ${resourceLabels[powerup.resource]}`}
+                        title={`${powerup.label}: ${points}/${powerup.cost} ${resourceLabels[powerup.resource]}`}
+                        style={{ "--res-color": RESOURCE_COLORS[powerup.resource] || "rgba(255,255,255,0.6)" }}
+                      >
+                        <span className="powerup-label">{powerup.label}</span>
+                        <span className="cost">
+                          {canUse ? "Ready" : `${powerup.cost} ${resourceLabels[powerup.resource]}`}
+                        </span>
+                        <span className="powerup-progress" aria-label={`${powerup.label} resource progress`}>
+                          <span className="powerup-progress-track" aria-hidden="true">
+                            <span className="powerup-progress-fill" style={{ width: `${ratio * 100}%` }} />
+                          </span>
+                          <span className="powerup-progress-label">
+                            {Math.min(points, powerup.cost)}/{powerup.cost}
+                          </span>
+                        </span>
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+              {powerupDraft ? (
+                <div className="muted">{powerupHelp[powerupDraft] || "Click a highlighted system to place."}</div>
+              ) : null}
+            </div>
           </div>
-          {powerupDraft ? <div className="muted">{powerupHelp[powerupDraft] || "Click a highlighted system to place."}</div> : null}
         </aside>
       </div>
 
