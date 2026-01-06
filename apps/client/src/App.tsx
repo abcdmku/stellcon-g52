@@ -4,6 +4,7 @@ import type { GameListItem, GameState, Orders, PowerupKey } from "@stellcon/shar
 import { demoPlayerId, demoState } from "./demoState.js";
 import Board from "./features/board/Board";
 import Lobby from "./features/lobby/Lobby.jsx";
+import LobbyStars from "./features/lobby/LobbyStars.jsx";
 import PlayerCard from "./features/lobby/PlayerCard.jsx";
 import { emptyOrders } from "./shared/lib/orders";
 import { useGameSocket } from "./shared/hooks/useGameSocket";
@@ -611,6 +612,7 @@ function App() {
   if (!gameId) {
     return (
       <div className="lobby">
+        <LobbyStars />
         <div className="lobby-card">
           <Lobby
             onCreate={handleCreate}
