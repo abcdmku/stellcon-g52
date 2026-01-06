@@ -1747,6 +1747,31 @@ button:disabled {
   display: grid;
   place-items: center;
   padding: 24px;
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+  background:
+    radial-gradient(circle at 15% 20%, rgba(208, 92, 255, 0.18), transparent 45%),
+    radial-gradient(circle at 85% 18%, rgba(116, 242, 255, 0.14), transparent 50%),
+    radial-gradient(circle at 60% 85%, rgba(108, 247, 178, 0.1), transparent 55%),
+    radial-gradient(circle at 50% 120%, rgba(0, 0, 0, 0.85), transparent 60%),
+    linear-gradient(120deg, #050713 0%, #070b18 55%, #04050c 100%);
+}
+
+.lobby-stars {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0.95;
+  mix-blend-mode: screen;
+  filter: saturate(1.05);
+}
+
+.lobby-stars canvas {
+  width: 100% !important;
+  height: 100% !important;
+  display: block;
 }
 
 .lobby-card {
@@ -1756,6 +1781,10 @@ button:disabled {
   background: var(--panel-strong);
   border: 1px solid var(--panel-border);
   box-shadow: 0 18px 40px rgba(4, 6, 16, 0.5);
+  position: relative;
+  z-index: 1;
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
 }
 
 .lobby-title {
