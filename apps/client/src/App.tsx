@@ -13,6 +13,11 @@ import "./App.css";
 
 const SERVER_URL = import.meta.env.VITE_SERVER_URL || "http://localhost:4000";
 const DEMO_MODE = new URLSearchParams(window.location.search).has("demo");
+const MUSIC_TRACKS = {
+  intro: "/StellCon%20-%20Intro.mp3",
+  recon: "/StellCon%20-%20Recon.Mp3",
+  decisions: "/StellCon%20-%20Decisions.mp3",
+} as const;
 const resourceLabels = {
   fusion: "Fusion",
   terrain: "Terrain",
@@ -93,6 +98,72 @@ function PowerupIcon({ type, size = 18 }: { type: PowerupKey; size?: number }) {
   }
 }
 
+function MusicIcon({ muted, size = 18 }: { muted: boolean; size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path
+        fill="currentColor"
+        d="M17 3.6c.3-.1.7 0 .9.2.3.2.4.5.4.8v10.6c0 2.3-1.8 4-4.2 4-2 0-3.6-1.3-3.6-3.1 0-2 1.9-3.3 4-3.3.7 0 1.3.1 1.9.3V7.2l-8 2V16c0 2.3-1.8 4-4.2 4-2 0-3.6-1.3-3.6-3.1 0-2 1.9-3.3 4-3.3.7 0 1.3.1 1.9.3V7.4c0-.5.3-.9.8-1l10-2.8Z"
+      />
+      {muted ? <path fill="currentColor" d="M4.4 4.4a1 1 0 0 1 1.4 0l13.8 13.8a1 1 0 0 1-1.4 1.4L4.4 5.8a1 1 0 0 1 0-1.4Z" /> : null}
+    </svg>
+  );
+}
+
+function SfxIcon({ muted, size = 18 }: { muted: boolean; size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path
+        fill="currentColor"
+        d="M4.5 9.2c0-.6.4-1 1-1h3.2l4.6-3.6c.7-.5 1.7 0 1.7.9v13c0 .9-1 1.4-1.7.9l-4.6-3.6H5.5c-.6 0-1-.4-1-1V9.2Z"
+      />
+      <path
+        fill="currentColor"
+        d="M18.1 8.3c.4-.4 1-.4 1.4 0 1.1 1.1 1.8 2.6 1.8 4.2s-.7 3.1-1.8 4.2c-.4.4-1 .4-1.4 0-.4-.4-.4-1 0-1.4.8-.8 1.2-1.7 1.2-2.8s-.4-2-1.2-2.8c-.4-.4-.4-1 0-1.4Z"
+        opacity={muted ? 0.25 : 0.95}
+      />
+      {muted ? <path fill="currentColor" d="M16.1 9.9a1 1 0 0 1 1.4 0l2.7 2.7a1 1 0 0 1 0 1.4l-2.7 2.7a1 1 0 1 1-1.4-1.4l2-2-2-2a1 1 0 0 1 0-1.4Z" /> : null}
+    </svg>
+  );
+}
+
+function SoundControls({
+  musicMuted,
+  sfxMuted,
+  onToggleMusic,
+  onToggleSfx,
+}: {
+  musicMuted: boolean;
+  sfxMuted: boolean;
+  onToggleMusic: () => void;
+  onToggleSfx: () => void;
+}) {
+  return (
+    <div className="sound-controls" role="group" aria-label="Sound controls">
+      <button
+        type="button"
+        className={`sound-toggle ${musicMuted ? "muted" : ""}`}
+        onClick={onToggleMusic}
+        aria-pressed={musicMuted}
+        aria-label={musicMuted ? "Unmute music" : "Mute music"}
+        title={musicMuted ? "Unmute music" : "Mute music"}
+      >
+        <MusicIcon muted={musicMuted} />
+      </button>
+      <button
+        type="button"
+        className={`sound-toggle ${sfxMuted ? "muted" : ""}`}
+        onClick={onToggleSfx}
+        aria-pressed={sfxMuted}
+        aria-label={sfxMuted ? "Unmute sound effects" : "Mute sound effects"}
+        title={sfxMuted ? "Unmute sound effects" : "Mute sound effects"}
+      >
+        <SfxIcon muted={sfxMuted} />
+      </button>
+    </div>
+  );
+}
+
 function App() {
   const [state, setState] = useState<GameState | null>(DEMO_MODE ? (demoState as unknown as GameState) : null);
   const [playerId, setPlayerId] = useState<string | null>(DEMO_MODE ? demoPlayerId : null);
@@ -111,6 +182,10 @@ function App() {
   const [availableGames, setAvailableGames] = useState<GameListItem[]>([]);
   const lastSeenTurnRef = useRef<{ turn: number | null; phase: string | null }>({ turn: null, phase: null });
   const noticeTimeoutRef = useRef<number | null>(null);
+  const backgroundMusicRef = useRef<HTMLAudioElement | null>(null);
+  const backgroundTrackRef = useRef<string | null>(null);
+  const [musicMuted, setMusicMuted] = useState(() => window.localStorage.getItem("stellcon.muteMusic") === "1");
+  const [sfxMuted, setSfxMuted] = useState(() => window.localStorage.getItem("stellcon.muteSfx") === "1");
 
   const handleGameState = useCallback(
     (gameState: GameState) => {
@@ -193,6 +268,92 @@ function App() {
       if (noticeTimeoutRef.current) window.clearTimeout(noticeTimeoutRef.current);
     };
   }, []);
+
+  useEffect(() => {
+    window.localStorage.setItem("stellcon.muteMusic", musicMuted ? "1" : "0");
+  }, [musicMuted]);
+
+  useEffect(() => {
+    window.localStorage.setItem("stellcon.muteSfx", sfxMuted ? "1" : "0");
+  }, [sfxMuted]);
+
+  useEffect(() => {
+    document.documentElement.dataset.stellconMusicMuted = musicMuted ? "1" : "0";
+    document.documentElement.dataset.stellconSfxMuted = sfxMuted ? "1" : "0";
+    window.dispatchEvent(new CustomEvent("stellcon:sound", { detail: { musicMuted, sfxMuted } }));
+  }, [musicMuted, sfxMuted]);
+
+  useEffect(() => {
+    if (!backgroundMusicRef.current) {
+      const audio = new Audio(MUSIC_TRACKS.intro);
+      audio.loop = true;
+      audio.preload = "auto";
+      audio.volume = 0.35;
+      backgroundMusicRef.current = audio;
+      backgroundTrackRef.current = MUSIC_TRACKS.intro;
+    }
+
+    const audio = backgroundMusicRef.current;
+    const inLobby = !gameId;
+    const maxTurns = Number(state?.config?.maxTurns || 0);
+    const turn = Number(state?.turn || 0);
+    const shouldSwitchToDecisions = !inLobby && maxTurns > 0 && turn >= Math.ceil(maxTurns * 0.25);
+    const desiredTrack = inLobby ? MUSIC_TRACKS.intro : shouldSwitchToDecisions ? MUSIC_TRACKS.decisions : MUSIC_TRACKS.recon;
+    const shouldPlay = !musicMuted;
+
+    let resumeHandler: (() => void) | null = null;
+    let visibilityHandler: (() => void) | null = null;
+
+    const tryPlay = () => {
+      audio.muted = false;
+      void audio.play().catch(() => {
+        if (!shouldPlay) return;
+        resumeHandler = () => {
+          resumeHandler = null;
+          void audio.play().catch(() => {});
+        };
+        window.addEventListener("pointerdown", resumeHandler, { once: true });
+        window.addEventListener("keydown", resumeHandler, { once: true });
+      });
+    };
+
+    const switchTrack = () => {
+      if (backgroundTrackRef.current === desiredTrack) return;
+      backgroundTrackRef.current = desiredTrack;
+      audio.pause();
+      audio.src = desiredTrack;
+      audio.load();
+    };
+
+    switchTrack();
+
+    if (!shouldPlay) {
+      audio.pause();
+      audio.muted = true;
+    } else {
+      tryPlay();
+    }
+
+    visibilityHandler = () => {
+      if (document.visibilityState !== "visible") {
+        audio.pause();
+        return;
+      }
+      if (!shouldPlay) return;
+      switchTrack();
+      tryPlay();
+    };
+
+    document.addEventListener("visibilitychange", visibilityHandler);
+
+    return () => {
+      document.removeEventListener("visibilitychange", visibilityHandler!);
+      if (resumeHandler) {
+        window.removeEventListener("pointerdown", resumeHandler);
+        window.removeEventListener("keydown", resumeHandler);
+      }
+    };
+  }, [gameId, musicMuted, state?.config?.maxTurns, state?.turn]);
 
   useEffect(() => {
     if (!placementMode) return;
@@ -613,15 +774,26 @@ function App() {
     return (
       <div className="lobby">
         <LobbyStars />
-        <div className="lobby-card">
-          <Lobby
-            onCreate={handleCreate}
-            onJoin={handleJoin}
-            onWatch={handleWatch}
-            isBusy={!socket}
-            games={availableGames}
-          />
+        <div className="lobby-shell">
+          <div className="lobby-brand" aria-label="Stellcon">
+            <div className="lobby-brand-title">Stellcon</div>
+          </div>
+          <div className="lobby-card">
+            <Lobby
+              onCreate={handleCreate}
+              onJoin={handleJoin}
+              onWatch={handleWatch}
+              isBusy={!socket}
+              games={availableGames}
+            />
+          </div>
         </div>
+        <SoundControls
+          musicMuted={musicMuted}
+          sfxMuted={sfxMuted}
+          onToggleMusic={() => setMusicMuted((current) => !current)}
+          onToggleSfx={() => setSfxMuted((current) => !current)}
+        />
       </div>
     );
   }
@@ -635,6 +807,12 @@ function App() {
             Return to Lobby
           </button>
         </div>
+        <SoundControls
+          musicMuted={musicMuted}
+          sfxMuted={sfxMuted}
+          onToggleMusic={() => setMusicMuted((current) => !current)}
+          onToggleSfx={() => setSfxMuted((current) => !current)}
+        />
       </div>
     );
   }
@@ -865,6 +1043,13 @@ function App() {
           </div>
         </div>
       </div>
+
+      <SoundControls
+        musicMuted={musicMuted}
+        sfxMuted={sfxMuted}
+        onToggleMusic={() => setMusicMuted((current) => !current)}
+        onToggleSfx={() => setSfxMuted((current) => !current)}
+      />
     </div>
   );
 }

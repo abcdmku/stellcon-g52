@@ -983,7 +983,7 @@ const Board = memo(function Board({
               : system.ownerId;
           const owner = displayedOwnerId ? players?.[displayedOwnerId] : null;
           const accent = owner?.color || "#8c9bbe";
-          const accentGlow = hexToRgba(accent, 0.25) || "rgba(140, 155, 190, 0.2)";
+          const accentGlow = hexToRgba(accent, 0.16) || "rgba(140, 155, 190, 0.14)";
           const placement = orders?.placements?.[system.id] || 0;
 
           let displayedFleets = system.fleets || 0;
@@ -1027,7 +1027,7 @@ const Board = memo(function Board({
                 top: `${position.y}px`,
                 "--accent-color": accent,
                 "--accent-glow": accentGlow,
-                "--core-color": owner?.color || "#2b344a",
+                "--core-color": owner?.color || "#3b3f46",
                 "--powerup-color": powerupHighlightColor || "",
               }}
               onClick={(event) => {

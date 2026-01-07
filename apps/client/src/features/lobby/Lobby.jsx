@@ -140,7 +140,7 @@ export default function Lobby({ onCreate, onJoin, onWatch, isBusy, games }) {
                 Players <span className="players-value">{maxPlayers}</span>
               </div>
               <div className="players-segment" role="radiogroup" aria-label="Players">
-                {[2, 3, 4, 5, 6].map((value) => (
+                {[2, 3, 4, 5, 6, 7, 8].map((value) => (
                   <button
                     key={value}
                     type="button"
@@ -154,16 +154,6 @@ export default function Lobby({ onCreate, onJoin, onWatch, isBusy, games }) {
               </div>
             </div>
 
-            <label>
-              Map Size
-              <select value={mapSize} onChange={(event) => setMapSize(event.target.value)}>
-                {Object.entries(MAP_SIZES).map(([key, value]) => (
-                  <option key={key} value={key}>
-                    {key} ({value.width}x{value.height})
-                  </option>
-                ))}
-              </select>
-            </label>
             <label>
               Max Turns
               <input
@@ -183,6 +173,16 @@ export default function Lobby({ onCreate, onJoin, onWatch, isBusy, games }) {
                 value={turnSeconds}
                 onChange={(event) => setTurnSeconds(Number(event.target.value))}
               />
+            </label>
+            <label>
+              Map Size
+              <select value={mapSize} onChange={(event) => setMapSize(event.target.value)}>
+                {Object.entries(MAP_SIZES).map(([key, value]) => (
+                  <option key={key} value={key}>
+                    {key} ({value.width}x{value.height})
+                  </option>
+                ))}
+              </select>
             </label>
           </div>
           <div className="lobby-actions">
