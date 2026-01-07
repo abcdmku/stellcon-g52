@@ -330,7 +330,7 @@ button:disabled {
   border-radius: 0;
   background: radial-gradient(circle at 40% 30%, rgba(52, 84, 142, 0.18), transparent 55%),
     radial-gradient(circle at 70% 70%, rgba(110, 80, 160, 0.14), transparent 45%),
-    rgba(6, 10, 20, 0.72);
+    rgba(6, 10, 20, 0.52);
   border: none;
   overflow: hidden;
   cursor: grab;
@@ -1817,6 +1817,20 @@ button:disabled {
 }
 
 .lobby-stars canvas {
+  width: 100% !important;
+  height: 100% !important;
+  display: block;
+}
+
+.game-stars {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0.6;
+}
+
+.game-stars canvas {
   width: 100% !important;
   height: 100% !important;
   display: block;
