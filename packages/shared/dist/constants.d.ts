@@ -1,9 +1,11 @@
-export declare const RESOURCE_TYPES: readonly ["fusion", "terrain", "metal", "crystal"];
+export declare const CORE_RESOURCE_TYPES: readonly ["fusion", "terrain", "metal", "crystal"];
+export declare const RESOURCE_TYPES: readonly ["fusion", "terrain", "metal", "crystal", "ceveron"];
 export declare const RESOURCE_COLORS: {
     fusion: string;
     terrain: string;
     metal: string;
     crystal: string;
+    ceveron: string;
 };
 export declare const POWERUPS: {
     readonly stellarBomb: {

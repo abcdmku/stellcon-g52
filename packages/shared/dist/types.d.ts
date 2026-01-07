@@ -1,4 +1,4 @@
-export type ResourceType = "fusion" | "terrain" | "metal" | "crystal";
+export type ResourceType = "fusion" | "terrain" | "metal" | "crystal" | "ceveron";
 export type PowerupKey = "stellarBomb" | "terraform" | "defenseNet" | "wormhole";
 export type Phase = "planning" | "resolving" | "complete";
 export type MapSize = "small" | "medium" | "large" | "massive";

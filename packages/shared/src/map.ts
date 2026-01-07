@@ -1,4 +1,4 @@
-import { RESOURCE_TYPES } from "./constants.js";
+import { CORE_RESOURCE_TYPES, RESOURCE_TYPES } from "./constants.js";
 import { mulberry32, seedToInt, pickRandom, axialDistance } from "./utils.js";
 import type { ResourceMap, SystemState } from "./types.js";
 
@@ -42,20 +42,126 @@ function coordKey(q: number, r: number) {
   return `${q},${r}`;
 }
 
+function rollTotalResources(
+  rand: Rand,
+  keys: readonly (keyof ResourceMap)[],
+  { minTotal, maxTotal }: { minTotal: number; maxTotal: number }
+): ResourceMap {
+  const shuffled = [...keys];
+  for (let i = keys.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(rand() * (i + 1));
+    const tmp = shuffled[i];
+    shuffled[i] = shuffled[j];
+    shuffled[j] = tmp;
+  }
+
+  const total = minTotal + Math.floor(rand() * (maxTotal - minTotal + 1));
+  let remaining = total;
+
+  const resources = {} as ResourceMap;
+  for (const key of RESOURCE_TYPES) resources[key] = 0;
+
+  for (let i = 0; i < shuffled.length; i += 1) {
+    const key = shuffled[i];
+    const value = i === shuffled.length - 1 ? remaining : Math.floor(rand() * (remaining + 1));
+    resources[key] = value;
+    remaining -= value;
+  }
+
+  return resources;
+}
+
+export function rollResourcesForTier(tier: number, rand: Rand): ResourceMap {
+  const clampedTier = Math.max(0, Math.min(3, Math.floor(tier)));
+  const ceveronByTier = [0, 1, 2, 3];
+  const ranges = [
+    { minTotal: 1, maxTotal: 3 }, // tier 0
+    { minTotal: 3, maxTotal: 5 }, // tier 1
+    { minTotal: 5, maxTotal: 8 }, // tier 2
+    { minTotal: 8, maxTotal: 12 }, // tier 3 (homeworlds only)
+  ];
+
+  if (clampedTier === 3) {
+    const resources = {} as ResourceMap;
+    for (const key of RESOURCE_TYPES) resources[key] = 0;
+    resources.ceveron = ceveronByTier[clampedTier];
+
+    const { minTotal, maxTotal } = ranges[clampedTier];
+    const total = Math.max(
+      CORE_RESOURCE_TYPES.length,
+      minTotal + Math.floor(rand() * (maxTotal - minTotal + 1))
+    );
+
+    for (const key of CORE_RESOURCE_TYPES) resources[key] = 1;
+    let remaining = total - CORE_RESOURCE_TYPES.length;
+    while (remaining > 0) {
+      const key = CORE_RESOURCE_TYPES[Math.floor(rand() * CORE_RESOURCE_TYPES.length)];
+      resources[key] += 1;
+      remaining -= 1;
+    }
+    return resources;
+  }
+
+  const resources = rollTotalResources(rand, CORE_RESOURCE_TYPES, ranges[clampedTier]);
+  resources.ceveron = ceveronByTier[clampedTier];
+  return resources;
+}
+
+function isInteriorCoord(coord: Coord, valid: Set<string>) {
+  return NEIGHBOR_OFFSETS.every((offset) => valid.has(coordKey(coord.q + offset.q, coord.r + offset.r)));
+}
+
+function pickHomeCoords(allCoords: Coord[], count: number, rand: Rand): Coord[] {
+  const valid = new Set<string>(allCoords.map((coord) => coordKey(coord.q, coord.r)));
+  const pool = allCoords.filter((coord) => isInteriorCoord(coord, valid));
+  if (pool.length === 0) return [];
+
+  const selected: Coord[] = [];
+  selected.push(pickRandom(pool, rand));
+
+  while (selected.length < count && selected.length < pool.length) {
+    let best: Coord | null = null;
+    let bestScore = -1;
+    for (const coord of pool) {
+      if (selected.some((chosen) => chosen.q === coord.q && chosen.r === coord.r)) continue;
+      const score = Math.min(...selected.map((chosen) => axialDistance(coord, chosen)));
+      if (score > bestScore) {
+        bestScore = score;
+        best = coord;
+      }
+    }
+    if (!best) break;
+    selected.push(best);
+  }
+
+  return selected;
+}
+
 function generateRandomCoords({
   allCoords,
   targetCount,
   rand,
+  seedCoords = [],
 }: {
   allCoords: Coord[];
   targetCount: number;
   rand: Rand;
+  seedCoords?: Coord[];
 }): Coord[] {
   const picked = new Map<string, Coord>();
   const valid = new Set<string>(allCoords.map((coord) => coordKey(coord.q, coord.r)));
-  const start = allCoords[Math.floor(rand() * allCoords.length)];
-  if (!start) return [];
-  picked.set(coordKey(start.q, start.r), start);
+
+  for (const coord of seedCoords) {
+    const key = coordKey(coord.q, coord.r);
+    if (!valid.has(key)) continue;
+    picked.set(key, coord);
+  }
+
+  if (picked.size === 0) {
+    const start = allCoords[Math.floor(rand() * allCoords.length)];
+    if (!start) return [];
+    picked.set(coordKey(start.q, start.r), start);
+  }
 
   const spawnChance = 0.18;
   const walkExtraChance = 0.26;
@@ -158,31 +264,53 @@ export function generateGalaxy({
   width = 18,
   height = 12,
   density = 0.55,
-}: { seed?: string; width?: number; height?: number; density?: number } = {}): { systems: SystemState[]; links: Links } {
+  homeworldCount = 0,
+}: {
+  seed?: string;
+  width?: number;
+  height?: number;
+  density?: number;
+  homeworldCount?: number;
+} = {}): { systems: SystemState[]; links: Links } {
   const rand = mulberry32(seedToInt(seed));
   const allCoords = rectCoords(width, height);
   const targetCount = Math.max(24, Math.min(allCoords.length, Math.floor(allCoords.length * density)));
-  const coords = generateRandomCoords({ allCoords, targetCount, rand });
+
+  const homeCoords = homeworldCount > 0 ? pickHomeCoords(allCoords, homeworldCount, rand) : [];
+  const homeCoordKeys = new Set<string>(homeCoords.map((coord) => coordKey(coord.q, coord.r)));
+  const homePerimeterCoords = homeCoords.flatMap((home) => NEIGHBOR_OFFSETS.map((offset) => ({ q: home.q + offset.q, r: home.r + offset.r })));
+  const homePerimeterCoordKeys = new Set<string>(homePerimeterCoords.map((coord) => coordKey(coord.q, coord.r)));
+
+  const coords = generateRandomCoords({
+    allCoords,
+    targetCount,
+    rand,
+    seedCoords: [...homeCoords, ...homePerimeterCoords],
+  });
 
   let systems: SystemState[] = coords.map(({ q, r }) => {
-    const roll = rand();
-    const tier = roll > 0.95 ? 2 : roll > 0.83 ? 1 : 0;
-    const ranges = [
-      { min: 1, max: 4 },
-      { min: 4, max: 8 },
-      { min: 8, max: 12 },
-    ];
-    const range = ranges[tier];
-    const resources = RESOURCE_TYPES.reduce((acc, key) => {
-      acc[key] = range.min + Math.floor(rand() * (range.max - range.min + 1));
-      return acc;
-    }, {} as ResourceMap);
+    const key = coordKey(q, r);
+    const isHome = homeCoordKeys.has(key);
+
+    let tier = 0;
+    if (isHome) {
+      tier = 3;
+    } else if (homePerimeterCoordKeys.has(key)) {
+      tier = 0;
+    } else {
+      const roll = rand();
+      tier = roll > 0.97 ? 2 : roll > 0.85 ? 1 : 0;
+    }
+
+    const resources = rollResourcesForTier(tier, rand);
+
     const fleetRanges = [
-      { min: 0, max: 3 },
-      { min: 2, max: 5 },
-      { min: 4, max: 8 },
+      { min: 0, max: 2 }, // tier 0
+      { min: 1, max: 3 }, // tier 1
+      { min: 2, max: 5 }, // tier 2
+      { min: 0, max: 0 }, // tier 3 (homeworld fleets are set when the game starts)
     ];
-    const fleetRange = fleetRanges[tier];
+    const fleetRange = fleetRanges[Math.max(0, Math.min(fleetRanges.length - 1, tier))];
     const fleets = fleetRange.min + Math.floor(rand() * (fleetRange.max - fleetRange.min + 1));
 
     return {
@@ -218,12 +346,6 @@ export function generateGalaxy({
 
   const components = connectedComponents(systemMap, links);
   if (components.length > 1) {
-    const sizes = components.map((component) => component.length);
-    let mainIndex = 0;
-    for (let index = 1; index < components.length; index += 1) {
-      if (sizes[index] > sizes[mainIndex]) mainIndex = index;
-    }
-
     const parent = Array.from({ length: components.length }, (_, index) => index);
     const findRoot = (index) => {
       let current = index;
@@ -244,56 +366,42 @@ export function generateGalaxy({
       return ra;
     };
 
-    const connectOnceByRootPair = new Set<string>();
+    const connectorIdsByComponent = components.map((component) => {
+      const boundary = component.filter((id) => (links[id] || []).length < NEIGHBOR_OFFSETS.length);
+      return boundary.length > 0 ? boundary : component;
+    });
+
     const connectComponents = (fromIndex: number, toIndex: number) => {
       const fromRoot = findRoot(fromIndex);
       const toRoot = findRoot(toIndex);
       if (fromRoot === toRoot) return false;
-      const pairKey = [fromRoot, toRoot].sort((a, b) => a - b).join("-");
-      if (connectOnceByRootPair.has(pairKey)) return false;
 
-      const best = bestLaneBetween(systemMap, components[fromIndex], components[toIndex]);
+      const best = bestLaneBetween(systemMap, connectorIdsByComponent[fromIndex], connectorIdsByComponent[toIndex]);
       if (!best) return false;
       addLane(links, best.fromId, best.toId);
-      connectOnceByRootPair.add(pairKey);
       unionRoots(fromRoot, toRoot);
       return true;
     };
 
-    const LARGE_ISLAND_SIZE = 8;
+    type ComponentEdge = { fromIndex: number; toIndex: number; dist: number };
 
-    // 1) Ensure large islands connect directly to the main landmass.
-    for (let index = 0; index < components.length; index += 1) {
-      if (index === mainIndex) continue;
-      if (sizes[index] < LARGE_ISLAND_SIZE) continue;
-      connectComponents(index, mainIndex);
+    const edges: ComponentEdge[] = [];
+    for (let fromIndex = 0; fromIndex < components.length; fromIndex += 1) {
+      for (let toIndex = fromIndex + 1; toIndex < components.length; toIndex += 1) {
+        const best = bestLaneBetween(systemMap, connectorIdsByComponent[fromIndex], connectorIdsByComponent[toIndex]);
+        if (!best) continue;
+        edges.push({ fromIndex, toIndex, dist: best.dist });
+      }
     }
 
-    // 2) Connect remaining islands without creating duplicate island-to-island lanes.
-    while (true) {
-      const mainRoot = findRoot(mainIndex);
-      const remaining = [];
-      const connected = [];
+    edges.sort((a, b) => a.dist - b.dist);
 
-      for (let index = 0; index < components.length; index += 1) {
-        if (sizes[index] < 2) continue;
-        if (findRoot(index) === mainRoot) connected.push(index);
-        else remaining.push(index);
+    let unions = 0;
+    for (const edge of edges) {
+      if (connectComponents(edge.fromIndex, edge.toIndex)) {
+        unions += 1;
+        if (unions >= components.length - 1) break;
       }
-
-      if (remaining.length === 0) break;
-
-      let best: { fromId: string; toId: string; dist: number; fromIndex: number; toIndex: number } | null = null;
-      for (const fromIndex of remaining) {
-        for (const toIndex of connected) {
-          const candidate = bestLaneBetween(systemMap, components[fromIndex], components[toIndex]);
-          if (!candidate) continue;
-          if (!best || candidate.dist < best.dist) best = { ...candidate, fromIndex, toIndex };
-        }
-      }
-
-      if (!best) break;
-      connectComponents(best.fromIndex, best.toIndex);
     }
   }
 

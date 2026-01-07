@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
+import { memo, useEffect, useMemo, useState } from "react";
 import Particles, { initParticlesEngine } from "@tsparticles/react";
 import { loadSlim } from "@tsparticles/slim";
 
-export default function GameStars() {
+function GameStars() {
   const [ready, setReady] = useState(false);
   const reducedMotion = useMemo(() => {
     if (typeof window === "undefined") return false;
@@ -71,3 +71,5 @@ export default function GameStars() {
     />
   );
 }
+
+export default memo(GameStars);

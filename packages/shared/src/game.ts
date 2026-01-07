@@ -1,5 +1,15 @@
-import { DEFAULT_CONFIG, HOMEWORLD_FLEETS, MAP_SIZES, PHASES, PLAYER_COLORS, POWERUPS, RESOURCE_TYPES, RESOLUTION_TRAVEL_MS } from "./constants.js";
-import { generateGalaxy, pickHomeworlds } from "./map.js";
+import {
+  CORE_RESOURCE_TYPES,
+  DEFAULT_CONFIG,
+  HOMEWORLD_FLEETS,
+  MAP_SIZES,
+  PHASES,
+  PLAYER_COLORS,
+  POWERUPS,
+  RESOURCE_TYPES,
+  RESOLUTION_TRAVEL_MS,
+} from "./constants.js";
+import { generateGalaxy, pickHomeworlds, rollResourcesForTier } from "./map.js";
 import { clamp, mulberry32, rollDie, seedToInt } from "./utils.js";
 import type {
   GameConfig,
@@ -22,6 +32,25 @@ function blankOrders(): Orders {
 
 function now() {
   return Date.now();
+}
+
+function ceveronForTier(tier: number) {
+  const clampedTier = Math.max(0, Math.min(3, Math.floor(tier ?? 0)));
+  return clampedTier;
+}
+
+export function normalizeCeveron(game: GameState) {
+  for (const system of game.systems) {
+    system.resources ||= initResources(0);
+    system.resources.ceveron = ceveronForTier(system.tier ?? 0);
+  }
+
+  if (game.phase === PHASES.planning) {
+    for (const player of Object.values(game.players)) {
+      const income = computeIncome(game, player.id);
+      player.income = income.totals;
+    }
+  }
 }
 
 export function createGame(
@@ -71,24 +100,16 @@ function addLink(links: GameState["links"], fromId: string, toId: string) {
   if (!links[toId].includes(fromId)) links[toId].push(fromId);
 }
 
-function rollTier2Resources(rand: Rand): ResourceMap {
-  const resources = {} as ResourceMap;
-  for (const key of RESOURCE_TYPES) {
-    resources[key] = 8 + Math.floor(rand() * 5);
-  }
-  return resources;
-}
-
-function rollTier0Resources(rand: Rand): ResourceMap {
-  const resources = {} as ResourceMap;
-  for (const key of RESOURCE_TYPES) {
-    resources[key] = 1 + Math.floor(rand() * 4);
-  }
-  return resources;
-}
-
-function rollTier0Fleets(rand: Rand) {
-  return Math.floor(rand() * 4);
+function rollFleetsForTier(tier: number, rand: Rand) {
+  const clampedTier = Math.max(0, Math.min(3, Math.floor(tier)));
+  const ranges = [
+    { min: 0, max: 2 }, // tier 0
+    { min: 1, max: 3 }, // tier 1
+    { min: 2, max: 5 }, // tier 2
+    { min: 0, max: 0 }, // tier 3 (homeworld fleets are set separately)
+  ];
+  const range = ranges[clampedTier];
+  return range.min + Math.floor(rand() * (range.max - range.min + 1));
 }
 
 function ensureSystem(game: GameState, { q, r, tier, rand }: { q: number; r: number; tier: number; rand: Rand }): SystemState {
@@ -101,9 +122,9 @@ function ensureSystem(game: GameState, { q, r, tier, rand }: { q: number; r: num
     q,
     r,
     tier,
-    resources: tier >= 2 ? rollTier2Resources(rand) : rollTier0Resources(rand),
+    resources: rollResourcesForTier(tier, rand),
     ownerId: null,
-    fleets: rollTier0Fleets(rand),
+    fleets: rollFleetsForTier(tier, rand),
     defenseNetTurns: 0,
     terraformed: false,
   };
@@ -174,16 +195,18 @@ export function addPlayer(
 export function assignHomeworlds(game: GameState) {
   const rand = mulberry32(seedToInt(game.seed));
   const players = Object.values(game.players);
+  const tier3Candidates = game.systems.filter((system) => (system.tier ?? 0) >= 3);
   const tier2Candidates = game.systems.filter((system) => (system.tier ?? 0) >= 2);
-  const pool = tier2Candidates.length >= players.length ? tier2Candidates : game.systems;
+  const pool =
+    tier3Candidates.length >= players.length ? tier3Candidates : tier2Candidates.length >= players.length ? tier2Candidates : game.systems;
   const homes = pickHomeworlds(pool, players.length, rand);
 
   players.forEach((player, index) => {
     const system = homes[index];
     if (!system) return;
 
-    system.tier = 2;
-    system.resources = rollTier2Resources(rand);
+    system.tier = 3;
+    system.resources = rollResourcesForTier(3, rand);
     system.ownerId = player.id;
     system.fleets = HOMEWORLD_FLEETS;
     player.homeSystemId = system.id;
@@ -200,6 +223,11 @@ export function assignHomeworlds(game: GameState) {
 }
 
 export function startGame(game: GameState) {
+  const players = Object.values(game.players);
+  const size = MAP_SIZES[game.config.mapSize] || MAP_SIZES.medium;
+  const { systems, links } = generateGalaxy({ seed: game.seed, width: size.width, height: size.height, homeworldCount: players.length });
+  game.systems = systems;
+  game.links = links;
   assignHomeworlds(game);
   startPlanningPhase(game);
 }
@@ -218,11 +246,12 @@ export function computeIncome(game: GameState, playerId: string): { totals: Reso
     for (const key of RESOURCE_TYPES) {
       totals[key] += system.resources[key];
     }
-    fleets += Math.min(...RESOURCE_TYPES.map((key) => system.resources[key] || 0));
+    fleets += Math.min(...CORE_RESOURCE_TYPES.map((key) => system.resources[key] || 0));
   }
-  const min = Math.min(...RESOURCE_TYPES.map((key) => totals[key]));
+  const min = Math.min(...CORE_RESOURCE_TYPES.map((key) => totals[key]));
   const surplus = initResources(0);
-  for (const key of RESOURCE_TYPES) surplus[key] = Math.max(0, totals[key] - min);
+  for (const key of CORE_RESOURCE_TYPES) surplus[key] = Math.max(0, totals[key] - min);
+  surplus.ceveron = totals.ceveron;
   return { totals, fleets, surplus };
 }
 
@@ -292,11 +321,12 @@ export function beginResolution(game: GameState) {
   game.turnEndsAt = null;
   game.revealedMoves = buildRevealedMoves(game);
   game.resolutionStartedAt = now();
+  const rand = mulberry32(seedToInt(`${game.seed}-${game.turn}`));
 
   applyPlacements(game);
   applyResearchActions(game);
-  applyPowerups(game);
-  planResolution(game);
+  applyPowerups(game, rand);
+  planResolution(game, rand);
 }
 
 export function finalizeResolution(game: GameState) {
@@ -402,8 +432,7 @@ function resolveMultiAttacker(attackerEntries: Array<{ playerId: string; fleets:
   return { rounds, winner };
 }
 
-function planResolution(game: GameState) {
-  const rand = mulberry32(seedToInt(`${game.seed}-${game.turn}`));
+function planResolution(game: GameState, rand: Rand) {
   const systems = cloneSystems(game.systems);
   const systemMap = new Map<string, SystemState>(systems.map((system) => [system.id, system]));
   const playerMap = new Map<string, PlayerState>(Object.values(game.players).map((player) => [player.id, { ...player }]));
@@ -588,7 +617,7 @@ function applyPlacements(game: GameState) {
   }
 }
 
-function applyPowerups(game: GameState) {
+function applyPowerups(game: GameState, rand: Rand) {
   const players = Object.values(game.players);
   const actionsByPlayer = new Map(players.map((player) => [player.id, player.orders.powerups || []]));
 
@@ -625,10 +654,9 @@ function applyPowerups(game: GameState) {
     if (action.type === "terraform") {
       const tier = target.tier ?? 0;
       if (target.ownerId === player.id && !target.terraformed && tier <= 1) {
-        for (const key of RESOURCE_TYPES) {
-          target.resources[key] += 2;
-        }
-        target.tier = Math.min(2, tier + 1);
+        const nextTier = Math.min(2, tier + 1);
+        target.resources = rollResourcesForTier(nextTier, rand);
+        target.tier = nextTier;
         target.terraformed = true;
         spend(player, powerup);
       }

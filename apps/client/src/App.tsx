@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { buildConnectedComponentIndex, inSameConnectedComponent, POWERUPS, RESOURCE_COLORS, RESOURCE_TYPES } from "@stellcon/shared";
+import { buildConnectedComponentIndex, inSameConnectedComponent, PLAYER_COLORS, POWERUPS, RESOURCE_COLORS, RESOURCE_TYPES } from "@stellcon/shared";
 import type { GameListItem, GameState, Orders, PowerupKey } from "@stellcon/shared";
 import { demoPlayerId, demoState } from "./demoState.js";
 import Board from "./features/board/Board";
@@ -24,6 +24,7 @@ const resourceLabels = {
   terrain: "Terrain",
   metal: "Metal",
   crystal: "Crystal",
+  ceveron: "Ceveron",
 };
 
 const resourceAbbr = {
@@ -31,6 +32,7 @@ const resourceAbbr = {
   terrain: "T",
   metal: "M",
   crystal: "C",
+  ceveron: "CV",
 };
 
 const powerupHelp = {
@@ -39,6 +41,8 @@ const powerupHelp = {
   terraform: "Place on one of your tier 0–1 systems; raises its tier by 1.",
   wormhole: "Place on any of your systems; lets you move from any of your systems to anywhere on the map.",
 };
+
+type PlayerColor = (typeof PLAYER_COLORS)[number];
 
 function FleetIcon({ size = 14 }: { size?: number }) {
   return (
@@ -188,6 +192,15 @@ function App() {
   const [backgroundAudioEl, setBackgroundAudioEl] = useState<HTMLAudioElement | null>(null);
   const [musicMuted, setMusicMuted] = useState(() => window.localStorage.getItem("stellcon.muteMusic") === "1");
   const [sfxMuted, setSfxMuted] = useState(() => window.localStorage.getItem("stellcon.muteSfx") === "1");
+  const [codeCopied, setCodeCopied] = useState(false);
+  const [showJoinPrompt, setShowJoinPrompt] = useState(false);
+  const [joinName, setJoinName] = useState(() => window.localStorage.getItem("stellcon.name") || "");
+  const [joinColor, setJoinColor] = useState<PlayerColor | "">(() => {
+    const stored = window.localStorage.getItem("stellcon.color");
+    if (!stored) return "";
+    return (PLAYER_COLORS as readonly string[]).includes(stored) ? (stored as PlayerColor) : "";
+  });
+  const [joinError, setJoinError] = useState("");
 
   const handleGameState = useCallback(
     (gameState: GameState) => {
@@ -242,6 +255,7 @@ function App() {
     lockIn,
     requestAlliance,
     acceptAlliance,
+    startGameEarly,
   } = useGameSocket(SERVER_URL, DEMO_MODE, socketCallbacks);
 
   const me = playerId && state?.players ? state.players[playerId] : null;
@@ -298,7 +312,10 @@ function App() {
 
     const audio = backgroundMusicRef.current;
     if (!backgroundAudioEl) setBackgroundAudioEl(audio);
-    const inLobby = !gameId;
+    const playerCount = state ? Object.keys(state.players || {}).length : 0;
+    const maxPlayers = state?.config?.maxPlayers || 2;
+    const isWaiting = state && state.turn === 1 && playerCount < maxPlayers;
+    const inLobby = !gameId || isWaiting;
     const maxTurns = Number(state?.config?.maxTurns || 0);
     const turn = Number(state?.turn || 0);
     const shouldSwitchToDecisions = !inLobby && maxTurns > 0 && turn >= Math.ceil(maxTurns * 0.25);
@@ -380,7 +397,7 @@ function App() {
         window.clearInterval(fadeInterval);
       }
     };
-  }, [backgroundAudioEl, gameId, musicMuted, state?.config?.maxTurns, state?.turn]);
+  }, [backgroundAudioEl, gameId, musicMuted, state?.config?.maxTurns, state?.config?.maxPlayers, state?.turn, state?.players]);
 
   useEffect(() => {
     if (!placementMode) return;
@@ -402,6 +419,16 @@ function App() {
     setSelectedId(null);
   }, [gameId]);
 
+  // Set default join color when prompt opens or available colors change
+  useEffect(() => {
+    if (!showJoinPrompt || !state) return;
+    const takenColors = Object.values(state.players || {}).map((p) => p.color);
+    const available = PLAYER_COLORS.filter((c) => !takenColors.includes(c));
+    if (available.length > 0 && (!joinColor || !available.includes(joinColor))) {
+      setJoinColor(available[0]);
+    }
+  }, [showJoinPrompt, state, joinColor]);
+
   useEffect(() => {
     if (!powerupDraft) return;
     const handleKeyDown = (event) => {
@@ -418,7 +445,11 @@ function App() {
     const fromUrl = new URLSearchParams(window.location.search).get("game");
     if (fromUrl) {
       watchGame({ gameId: fromUrl }, (response) => {
-        if (response && "error" in response) setError(response.error);
+        if (response && "error" in response) {
+          setError(response.error);
+        } else {
+          setShowJoinPrompt(true);
+        }
       });
       setGameId(fromUrl);
       return;
@@ -856,6 +887,167 @@ function App() {
   const rankedPlayers = [...players].sort((a, b) => b.systemCount - a.systemCount);
   const isComplete = state.phase === "complete";
   const winnerPlayer = (state.winnerId ? players.find((player) => player.id === state.winnerId) : null) || rankedPlayers[0] || null;
+  const isWaitingForPlayers = state.turn === 1 && players.length < state.config.maxPlayers;
+
+  // For join prompt: calculate available colors and existing names
+  const takenColors = players.map((p) => p.color);
+  const availableColors = PLAYER_COLORS.filter((c) => !takenColors.includes(c));
+  const existingNames = players.map((p) => (p.name || "").toLowerCase().trim());
+  const trimmedJoinName = joinName.trim().replace(/\s+/g, " ");
+  const isJoinNameValid = trimmedJoinName.length >= 2;
+  const isJoinNameUnique = !existingNames.includes(trimmedJoinName.toLowerCase());
+  const canJoinGame = showJoinPrompt && !playerId && availableColors.length > 0 && players.length < state.config.maxPlayers;
+
+  // Show lobby with waiting overlay while waiting for players
+  if (isWaitingForPlayers) {
+    return (
+      <div className="lobby">
+        <LobbyStars audioEl={backgroundAudioEl} />
+        <div className="lobby-shell">
+          <div className="lobby-brand" aria-label="Stellcon">
+            <div className="lobby-brand-title">Stellcon</div>
+          </div>
+          <div className="lobby-card">
+            <div className="waiting-lobby">
+              <div className="waiting-title">Waiting for Players</div>
+              <div className="waiting-count">
+                {players.length} / {state.config.maxPlayers} Commanders
+              </div>
+              <div className="waiting-players">
+                {players.map((player) => (
+                  <div key={player.id} className="waiting-player" style={{ "--player-color": player.color } as React.CSSProperties}>
+                    <span className="waiting-player-dot" />
+                    <span className="waiting-player-name">{player.name}</span>
+                    {player.id === playerId ? <span className="waiting-player-you">(You)</span> : null}
+                  </div>
+                ))}
+              </div>
+              <button
+                type="button"
+                className="waiting-code"
+                onClick={() => {
+                  if (gameId && !codeCopied) {
+                    navigator.clipboard.writeText(gameId).then(() => {
+                      setCodeCopied(true);
+                      setTimeout(() => setCodeCopied(false), 2000);
+                    }).catch(() => {});
+                  }
+                }}
+                title="Click to copy"
+              >
+                <span className="waiting-code-label">Game Code</span>
+                <span className="waiting-code-value">{gameId}</span>
+                <span className={`waiting-code-hint ${codeCopied ? "copied" : ""}`}>{codeCopied ? "Copied!" : "Click to copy"}</span>
+              </button>
+              <div className="waiting-hint">Share the game code with friends to join</div>
+              {playerId && state.config.maxPlayers > 2 && players.length >= 2 ? (
+                <button
+                  type="button"
+                  className="waiting-start"
+                  onClick={() => {
+                    startGameEarly((response) => {
+                      if (response && "error" in response) {
+                        setError(response.error);
+                      }
+                    });
+                  }}
+                >
+                  Start with {players.length} Players
+                </button>
+              ) : null}
+              <button type="button" className="secondary waiting-leave" onClick={handleLeaveGame}>
+                Leave Game
+              </button>
+            </div>
+          </div>
+        </div>
+        {canJoinGame ? (
+          <div className="join-prompt-overlay">
+            <div className="join-prompt-card">
+              <div className="join-prompt-title">Join Game</div>
+              <div className="join-prompt-subtitle">
+                {players.length} / {state.config.maxPlayers} players
+              </div>
+              {joinError ? <div className="join-prompt-error">{joinError}</div> : null}
+              <label className="join-prompt-label">
+                Commander Name
+                <input
+                  type="text"
+                  className="join-prompt-input"
+                  value={joinName}
+                  onChange={(e) => {
+                    setJoinName(e.target.value);
+                    setJoinError("");
+                  }}
+                  placeholder="Enter your name"
+                  autoFocus
+                />
+                {!isJoinNameUnique && trimmedJoinName.length > 0 ? (
+                  <span className="join-prompt-name-error">Name already taken</span>
+                ) : null}
+              </label>
+              <div className="join-prompt-label">
+                Select Color
+                <div className="join-prompt-colors">
+                  {availableColors.map((c) => (
+                    <button
+                      key={c}
+                      type="button"
+                      className={`join-prompt-color ${joinColor === c ? "active" : ""}`}
+                      style={{ "--swatch-color": c } as React.CSSProperties}
+                      onClick={() => setJoinColor(c)}
+                      aria-label={`Color ${c}`}
+                    />
+                  ))}
+                </div>
+              </div>
+              <div className="join-prompt-actions">
+                <button
+                  type="button"
+                  disabled={!isJoinNameValid || !isJoinNameUnique || !joinColor}
+                  onClick={() => {
+                    if (!isJoinNameValid || !isJoinNameUnique || !joinColor || !gameId) return;
+                    window.localStorage.setItem("stellcon.name", joinName);
+                    window.localStorage.setItem("stellcon.color", joinColor);
+                    joinGame({ name: trimmedJoinName, gameId, color: joinColor }, (response) => {
+                      if (!response) {
+                        setJoinError("No response from server.");
+                        return;
+                      }
+                      if ("error" in response) {
+                        setJoinError(response.error);
+                        return;
+                      }
+                      setPlayerId(response.playerId);
+                      setShowJoinPrompt(false);
+                      setJoinError("");
+                      resetOrders();
+                      setSelectedId(null);
+                      window.localStorage.setItem(
+                        "stellcon.session",
+                        JSON.stringify({ gameId: response.gameId, playerId: response.playerId })
+                      );
+                    });
+                  }}
+                >
+                  Join Game
+                </button>
+                <button type="button" className="secondary" onClick={() => setShowJoinPrompt(false)}>
+                  Watch Only
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : null}
+        <SoundControls
+          musicMuted={musicMuted}
+          sfxMuted={sfxMuted}
+          onToggleMusic={() => setMusicMuted((current) => !current)}
+          onToggleSfx={() => setSfxMuted((current) => !current)}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="app">
@@ -900,6 +1092,85 @@ function App() {
               </button>
               <button type="button" className="secondary" onClick={handleLeaveGame}>
                 Return to Lobby
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {canJoinGame ? (
+        <div className="join-prompt-overlay">
+          <div className="join-prompt-card">
+            <div className="join-prompt-title">Join Game</div>
+            <div className="join-prompt-subtitle">
+              {players.length} / {state.config.maxPlayers} players
+            </div>
+            {joinError ? <div className="join-prompt-error">{joinError}</div> : null}
+            <label className="join-prompt-label">
+              Commander Name
+              <input
+                type="text"
+                className="join-prompt-input"
+                value={joinName}
+                onChange={(e) => {
+                  setJoinName(e.target.value);
+                  setJoinError("");
+                }}
+                placeholder="Enter your name"
+                autoFocus
+              />
+              {!isJoinNameUnique && trimmedJoinName.length > 0 ? (
+                <span className="join-prompt-name-error">Name already taken</span>
+              ) : null}
+            </label>
+            <div className="join-prompt-label">
+              Select Color
+              <div className="join-prompt-colors">
+                {availableColors.map((c) => (
+                  <button
+                    key={c}
+                    type="button"
+                    className={`join-prompt-color ${joinColor === c ? "active" : ""}`}
+                    style={{ "--swatch-color": c } as React.CSSProperties}
+                    onClick={() => setJoinColor(c)}
+                    aria-label={`Color ${c}`}
+                  />
+                ))}
+              </div>
+            </div>
+            <div className="join-prompt-actions">
+              <button
+                type="button"
+                disabled={!isJoinNameValid || !isJoinNameUnique || !joinColor}
+                onClick={() => {
+                  if (!isJoinNameValid || !isJoinNameUnique || !joinColor || !gameId) return;
+                  window.localStorage.setItem("stellcon.name", joinName);
+                  window.localStorage.setItem("stellcon.color", joinColor);
+                  joinGame({ name: trimmedJoinName, gameId, color: joinColor }, (response) => {
+                    if (!response) {
+                      setJoinError("No response from server.");
+                      return;
+                    }
+                    if ("error" in response) {
+                      setJoinError(response.error);
+                      return;
+                    }
+                    setPlayerId(response.playerId);
+                    setShowJoinPrompt(false);
+                    setJoinError("");
+                    resetOrders();
+                    setSelectedId(null);
+                    window.localStorage.setItem(
+                      "stellcon.session",
+                      JSON.stringify({ gameId: response.gameId, playerId: response.playerId })
+                    );
+                  });
+                }}
+              >
+                Join Game
+              </button>
+              <button type="button" className="secondary" onClick={() => setShowJoinPrompt(false)}>
+                Watch Only
               </button>
             </div>
           </div>

@@ -56,5 +56,6 @@ export interface ClientToServerEvents {
     lockIn: (payload: unknown, callback?: (response: MaybeError<OkResponse>) => void) => void;
     requestAlliance: (payload: RequestAlliancePayload, callback?: (response: MaybeError<OkResponse>) => void) => void;
     acceptAlliance: (payload: AcceptAlliancePayload, callback?: (response: MaybeError<OkResponse>) => void) => void;
+    startGameEarly: (payload: unknown, callback?: (response: MaybeError<OkResponse>) => void) => void;
 }
 //# sourceMappingURL=socket.d.ts.map

@@ -6,6 +6,7 @@ import {
   createGame,
   finalizeResolution,
   lockIn,
+  normalizeCeveron,
   redactGameState,
   setAlliance,
   startGame,
@@ -15,6 +16,7 @@ import {
 import type { ClientToServerEvents, ServerToClientEvents, GameState } from "@stellcon/shared";
 import {
   clearSession,
+  deleteGame,
   ensureGame,
   ensureGameRecord,
   getGame,
@@ -52,6 +54,7 @@ export function registerSocketHandlers(io: IO, store: GameStore) {
   const emitState = (gameId: string) => {
     const game = getGame(store, gameId);
     if (!game) return;
+    normalizeCeveron(game);
     for (const [socketId, session] of getSocketsForGame(store, gameId)) {
       const state = redactGameState(game, session.playerId);
       io.to(socketId).emit("gameState", state);
@@ -282,16 +285,58 @@ export function registerSocketHandlers(io: IO, store: GameStore) {
       }
     });
 
+    socket.on("startGameEarly", (payload, callback) => {
+      try {
+        const session = getSession(store, socket.id);
+        if (!session) throw new Error("Not in game");
+        if (!session.playerId) throw new Error("Spectators cannot start the game");
+        const game = ensureGame(store, session.gameId);
+        const record = ensureGameRecord(store, game.id);
+        if (record.started) throw new Error("Game already started");
+        const players = Object.keys(game.players).length;
+        if (players < 2) throw new Error("Need at least 2 players to start");
+        if (game.config.maxPlayers < 3) throw new Error("Cannot start early for 2-player games");
+        record.started = true;
+        startGame(game);
+        emitState(game.id);
+        emitGamesList();
+        callback?.({ ok: true });
+      } catch (error) {
+        callback?.({ error: error instanceof Error ? error.message : String(error) });
+      }
+    });
+
     socket.on("disconnect", () => {
       const session = getSession(store, socket.id);
       if (session) {
         const game = getGame(store, session.gameId);
         if (game && session.playerId && game.players[session.playerId]) {
           game.players[session.playerId].connected = false;
-          emitState(game.id);
         }
+
+        // Check if any OTHER players are still connected to the game
+        // (before clearing this session)
+        if (game) {
+          const remainingSockets = getSocketsForGame(store, game.id);
+          const hasOtherConnectedPlayers = remainingSockets.some(
+            ([socketId, s]) => socketId !== socket.id && s.playerId !== null
+          );
+
+          clearSession(store, socket.id);
+
+          if (!hasOtherConnectedPlayers) {
+            // No other players left in the game, delete the room
+            deleteGame(store, game.id);
+            emitGamesList();
+          } else {
+            emitState(game.id);
+          }
+        } else {
+          clearSession(store, socket.id);
+        }
+      } else {
+        clearSession(store, socket.id);
       }
-      clearSession(store, socket.id);
     });
   });
 
