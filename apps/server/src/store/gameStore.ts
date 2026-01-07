@@ -68,6 +68,26 @@ export function getSocketsForGame(store: GameStore, gameId: string) {
   return Array.from(store.sessions.entries()).filter(([, session]) => session.gameId === gameId);
 }
 
+export function deleteGame(store: GameStore, gameId: string) {
+  // Clear any pending resolve timer
+  const timer = store.resolveTimers.get(gameId);
+  if (timer) {
+    clearTimeout(timer);
+    store.resolveTimers.delete(gameId);
+  }
+
+  // Clear pending alliances for this game
+  for (const key of store.pendingAlliances.keys()) {
+    if (key.startsWith(`${gameId}:`)) {
+      store.pendingAlliances.delete(key);
+    }
+  }
+
+  // Delete game record and game state
+  store.records.delete(gameId);
+  store.games.delete(gameId);
+}
+
 export function listPublicGames(store: GameStore): GameListItem[] {
   return [...store.games.values()]
     .filter((game) => !game.config?.isPrivate)

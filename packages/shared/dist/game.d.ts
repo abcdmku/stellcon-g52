@@ -1,4 +1,5 @@
 import type { GameConfig, GameState, Orders, PlayerState, ResourceMap } from "./types.js";
+export declare function normalizeCeveron(game: GameState): void;
 export declare function createGame({ id, config, seed }?: {
     id?: string;
     config?: Partial<GameConfig>;

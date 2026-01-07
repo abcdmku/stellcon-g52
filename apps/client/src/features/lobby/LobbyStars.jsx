@@ -1,10 +1,10 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Particles, { initParticlesEngine } from "@tsparticles/react";
 import { loadSlim } from "@tsparticles/slim";
 
 const audioNodesByElement = new WeakMap();
 
-export default function LobbyStars({ audioEl = null } = {}) {
+function LobbyStars({ audioEl = null } = {}) {
   const [ready, setReady] = useState(false);
   const containerRef = useRef(null);
   const rafRef = useRef(0);
@@ -296,3 +296,12 @@ export default function LobbyStars({ audioEl = null } = {}) {
     />
   );
 }
+
+// Only re-render if audioEl changes from null to a value or vice versa
+export default memo(LobbyStars, (prevProps, nextProps) => {
+  // Return true if props are equal (skip re-render)
+  // Only care about audioEl presence, not the exact reference
+  const prevHasAudio = !!prevProps.audioEl;
+  const nextHasAudio = !!nextProps.audioEl;
+  return prevHasAudio === nextHasAudio;
+});

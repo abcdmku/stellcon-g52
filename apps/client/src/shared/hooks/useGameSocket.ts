@@ -112,6 +112,13 @@ export function useGameSocket(serverUrl: string, demoMode: boolean, callbacks: S
     [socket]
   );
 
+  const startGameEarly = useCallback(
+    (callback?: (response: MaybeError<OkResponse>) => void) => {
+      socket?.emit("startGameEarly", null, callback);
+    },
+    [socket]
+  );
+
   return {
     socket,
     createGame,
@@ -123,5 +130,6 @@ export function useGameSocket(serverUrl: string, demoMode: boolean, callbacks: S
     lockIn,
     requestAlliance,
     acceptAlliance,
+    startGameEarly,
   };
 }

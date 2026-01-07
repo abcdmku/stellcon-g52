@@ -28,14 +28,21 @@ const resourceLabels = {
   terrain: "Terrain",
   metal: "Metal",
   crystal: "Crystal",
+  ceveron: "Ceveron",
 };
 
 const resourceAngles = {
-  fusion: -55,
-  terrain: -20,
-  metal: 20,
-  crystal: 55,
+  fusion: -70,
+  terrain: -35,
+  metal: 0,
+  crystal: 35,
+  ceveron: 70,
 } as const;
+
+function ceveronForTier(tier: number) {
+  const clampedTier = Math.max(0, Math.min(3, Math.floor(tier ?? 0)));
+  return clampedTier;
+}
 
 type BoardProps = {
   systems: GameState["systems"];
@@ -1042,14 +1049,14 @@ const Board = memo(function Board({
               <div className="hex-border" />
               <div className="hex-core" />
               <div className="hex-value">{displayedFleets}</div>
-              <div className={`hex-tier tier-${system.tier ?? 0}`} aria-label={`Tier ${(system.tier ?? 0) + 1}`}>
-                {Array.from({ length: (system.tier ?? 0) + 1 }).map((_, index) => (
+              <div className={`hex-tier tier-${system.tier ?? 0}`} aria-label={`Tier ${system.tier ?? 0}`}>
+                {Array.from({ length: system.tier ?? 0 }).map((_, index) => (
                   <span key={`tier-${system.id}-${index}`} />
                 ))}
               </div>
               <div className="hex-resources" aria-label="Resources">
                 {RESOURCE_TYPES.map((key) => {
-                  const value = system.resources?.[key] ?? 0;
+                  const value = key === "ceveron" ? ceveronForTier(system.tier ?? 0) : (system.resources?.[key] ?? 0);
                   const fill = clamp(value / RESOURCE_MAX, 0, 1);
                   const level = value <= 0 ? "None" : `${Math.min(value, RESOURCE_MAX)}/${RESOURCE_MAX}`;
                   return (

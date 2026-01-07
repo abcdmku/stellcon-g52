@@ -1,12 +1,14 @@
 import type { GameConfig, MapSize, Phase, PowerupKey, ResourceType } from "./types.js";
 
-export const RESOURCE_TYPES = ["fusion", "terrain", "metal", "crystal"] as const satisfies readonly ResourceType[];
+export const CORE_RESOURCE_TYPES = ["fusion", "terrain", "metal", "crystal"] as const satisfies readonly ResourceType[];
+export const RESOURCE_TYPES = [...CORE_RESOURCE_TYPES, "ceveron"] as const satisfies readonly ResourceType[];
 
 export const RESOURCE_COLORS = {
   fusion: "#d05cff",
   terrain: "#4edb7d",
   metal: "#f3c457",
   crystal: "#56c9ff",
+  ceveron: "#ff5fdb",
 };
 
 export const POWERUPS = {
