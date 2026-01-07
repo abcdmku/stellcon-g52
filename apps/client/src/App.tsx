@@ -5,6 +5,7 @@ import { demoPlayerId, demoState } from "./demoState.js";
 import Board from "./features/board/Board";
 import Lobby from "./features/lobby/Lobby.jsx";
 import LobbyStars from "./features/lobby/LobbyStars.jsx";
+import GameStars from "./features/game/GameStars.jsx";
 import PlayerCard from "./features/lobby/PlayerCard.jsx";
 import { emptyOrders } from "./shared/lib/orders";
 import { useGameSocket } from "./shared/hooks/useGameSocket";
@@ -184,6 +185,7 @@ function App() {
   const noticeTimeoutRef = useRef<number | null>(null);
   const backgroundMusicRef = useRef<HTMLAudioElement | null>(null);
   const backgroundTrackRef = useRef<string | null>(null);
+  const [backgroundAudioEl, setBackgroundAudioEl] = useState<HTMLAudioElement | null>(null);
   const [musicMuted, setMusicMuted] = useState(() => window.localStorage.getItem("stellcon.muteMusic") === "1");
   const [sfxMuted, setSfxMuted] = useState(() => window.localStorage.getItem("stellcon.muteSfx") === "1");
 
@@ -290,10 +292,12 @@ function App() {
       audio.preload = "auto";
       audio.volume = 0.35;
       backgroundMusicRef.current = audio;
+      setBackgroundAudioEl(audio);
       backgroundTrackRef.current = MUSIC_TRACKS.intro;
     }
 
     const audio = backgroundMusicRef.current;
+    if (!backgroundAudioEl) setBackgroundAudioEl(audio);
     const inLobby = !gameId;
     const maxTurns = Number(state?.config?.maxTurns || 0);
     const turn = Number(state?.turn || 0);
@@ -304,12 +308,32 @@ function App() {
     let resumeHandler: (() => void) | null = null;
     let visibilityHandler: (() => void) | null = null;
 
+    const targetVolume = 0.35;
+    const fadeDuration = 500; // 0.5 seconds
+    let fadeInterval: number | null = null;
+
+    const fadeInAudio = () => {
+      audio.volume = 0;
+      const startTime = Date.now();
+      fadeInterval = window.setInterval(() => {
+        const elapsed = Date.now() - startTime;
+        const progress = Math.min(elapsed / fadeDuration, 1);
+        audio.volume = targetVolume * progress;
+        if (progress >= 1 && fadeInterval) {
+          window.clearInterval(fadeInterval);
+          fadeInterval = null;
+        }
+      }, 16);
+    };
+
     const tryPlay = () => {
       audio.muted = false;
+      fadeInAudio();
       void audio.play().catch(() => {
         if (!shouldPlay) return;
         resumeHandler = () => {
           resumeHandler = null;
+          fadeInAudio();
           void audio.play().catch(() => {});
         };
         window.addEventListener("pointerdown", resumeHandler, { once: true });
@@ -352,8 +376,11 @@ function App() {
         window.removeEventListener("pointerdown", resumeHandler);
         window.removeEventListener("keydown", resumeHandler);
       }
+      if (fadeInterval) {
+        window.clearInterval(fadeInterval);
+      }
     };
-  }, [gameId, musicMuted, state?.config?.maxTurns, state?.turn]);
+  }, [backgroundAudioEl, gameId, musicMuted, state?.config?.maxTurns, state?.turn]);
 
   useEffect(() => {
     if (!placementMode) return;
@@ -773,7 +800,7 @@ function App() {
   if (!gameId) {
     return (
       <div className="lobby">
-        <LobbyStars />
+        <LobbyStars audioEl={backgroundAudioEl} />
         <div className="lobby-shell">
           <div className="lobby-brand" aria-label="Stellcon">
             <div className="lobby-brand-title">Stellcon</div>
@@ -832,6 +859,7 @@ function App() {
 
   return (
     <div className="app">
+      <GameStars />
       <div className="overlay-top">
         {error ? <div className="alert">{error}</div> : null}
         {notice ? <div className="notice">{notice}</div> : null}
