@@ -1276,6 +1276,9 @@ function App() {
   return (
     <div className="app">
       <GameStars />
+      <div className="corner-brand" aria-hidden="true">
+        <div className="lobby-brand-title">Stellcon</div>
+      </div>
       <div className="overlay-top">
         {error ? <div className="alert">{error}</div> : null}
         {notice ? <div className="notice">{notice}</div> : null}
