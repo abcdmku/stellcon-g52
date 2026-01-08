@@ -4,6 +4,7 @@ export interface CreateGamePayload {
   name: string;
   config?: Partial<GameConfig>;
   color?: string;
+  previousGameId?: string;
 }
 
 export interface JoinGamePayload {
@@ -56,6 +57,7 @@ export interface ServerToClientEvents {
   gameState: (state: GameState) => void;
   gamesList: (games: GameListItem[]) => void;
   allianceRequest: (payload: { fromId: string }) => void;
+  rematchCreated: (payload: { gameId: string; creatorName: string }) => void;
 }
 
 export interface ClientToServerEvents {
@@ -64,6 +66,7 @@ export interface ClientToServerEvents {
   listGames: (payload: unknown, callback?: (response: GamesListResponse) => void) => void;
   watchGame: (payload: WatchGamePayload, callback?: (response: MaybeError<OkResponse>) => void) => void;
   rejoinGame: (payload: RejoinGamePayload, callback?: (response: MaybeError<GameIdResponse>) => void) => void;
+  leaveGame: (payload: unknown, callback?: (response: MaybeError<OkResponse>) => void) => void;
   updateOrders: (payload: UpdateOrdersPayload, callback?: (response: MaybeError<OkResponse>) => void) => void;
   lockIn: (payload: unknown, callback?: (response: MaybeError<OkResponse>) => void) => void;
   requestAlliance: (payload: RequestAlliancePayload, callback?: (response: MaybeError<OkResponse>) => void) => void;

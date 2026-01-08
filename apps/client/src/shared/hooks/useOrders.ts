@@ -6,7 +6,8 @@ type OrdersAction =
   | { type: "reset" }
   | { type: "replace"; orders: Orders }
   | { type: "placement"; systemId: string; delta: number; fleetsToPlace: number }
-  | { type: "queuePowerup"; powerup: PowerupKey; targetId: string }
+  | { type: "queuePowerup"; powerup: Exclude<PowerupKey, "wormhole">; targetId: string }
+  | { type: "queueWormhole"; fromId: string; toId: string }
   | { type: "queueMove"; fromId: string; toId: string; originFleets: number }
   | { type: "removeMove"; index: number }
   | { type: "adjustMove"; index: number; delta: number; originFleets: number };
@@ -39,6 +40,18 @@ function ordersReducer(state: Orders, action: OrdersAction): Orders {
         ...state,
         powerups: [...state.powerups, { type: action.powerup, targetId: action.targetId }],
       };
+    case "queueWormhole": {
+      const nextPowerups = state.powerups.filter(
+        (entry) =>
+          entry.type !== "wormhole" ||
+          !(
+            ("fromId" in entry && "toId" in entry && entry.fromId === action.fromId && entry.toId === action.toId) ||
+            ("fromId" in entry && "toId" in entry && entry.fromId === action.toId && entry.toId === action.fromId)
+          )
+      );
+      nextPowerups.push({ type: "wormhole", fromId: action.fromId, toId: action.toId });
+      return { ...state, powerups: nextPowerups };
+    }
     case "queueMove": {
       const moves = [...state.moves];
       const placement = Number(state.placements?.[action.fromId] || 0);
@@ -97,8 +110,11 @@ export function useOrders(initialOrders: Orders) {
   const applyPlacement = useCallback((systemId: string, delta: number, fleetsToPlace: number) => {
     dispatch({ type: "placement", systemId, delta, fleetsToPlace });
   }, []);
-  const queuePowerup = useCallback((powerup: PowerupKey, targetId: string) => {
+  const queuePowerup = useCallback((powerup: Exclude<PowerupKey, "wormhole">, targetId: string) => {
     dispatch({ type: "queuePowerup", powerup, targetId });
+  }, []);
+  const queueWormhole = useCallback((fromId: string, toId: string) => {
+    dispatch({ type: "queueWormhole", fromId, toId });
   }, []);
   const queueMove = useCallback((fromId: string, toId: string, originFleets: number) => {
     dispatch({ type: "queueMove", fromId, toId, originFleets });
@@ -114,6 +130,7 @@ export function useOrders(initialOrders: Orders) {
     replaceOrders,
     applyPlacement,
     queuePowerup,
+    queueWormhole,
     queueMove,
     removeMove,
     adjustMove,

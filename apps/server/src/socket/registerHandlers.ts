@@ -6,7 +6,6 @@ import {
   createGame,
   finalizeResolution,
   lockIn,
-  normalizeCeveron,
   redactGameState,
   setAlliance,
   startGame,
@@ -19,6 +18,7 @@ import {
   deleteGame,
   ensureGame,
   ensureGameRecord,
+  getGameRecord,
   getGame,
   getSession,
   getSocketsForGame,
@@ -54,7 +54,6 @@ export function registerSocketHandlers(io: IO, store: GameStore) {
   const emitState = (gameId: string) => {
     const game = getGame(store, gameId);
     if (!game) return;
-    normalizeCeveron(game);
     for (const [socketId, session] of getSocketsForGame(store, gameId)) {
       const state = redactGameState(game, session.playerId);
       io.to(socketId).emit("gameState", state);
@@ -131,14 +130,15 @@ export function registerSocketHandlers(io: IO, store: GameStore) {
   io.on("connection", (socket: GameSocket) => {
     socket.on("createGame", (payload, callback) => {
       try {
-        const { name, config, color } = payload;
+        const { name, config, color, previousGameId } = payload;
         const gameId = nanoid(6).toUpperCase();
         const game = createGame({ id: gameId, config, seed: `stellcon-${gameId}` });
         store.games.set(gameId, game);
         ensureGameRecord(store, gameId);
 
         const playerId = nanoid(8);
-        addPlayer(game, { id: playerId, name: ensureUniqueName(game, name), color });
+        const playerName = ensureUniqueName(game, name);
+        addPlayer(game, { id: playerId, name: playerName, color });
 
         trackSession(store, socket.id, { gameId, playerId });
         socket.join(`game:${gameId}`);
@@ -146,6 +146,14 @@ export function registerSocketHandlers(io: IO, store: GameStore) {
         maybeStartGame(game);
         emitState(gameId);
         emitGamesList();
+
+        // Notify players in the previous game about the rematch
+        if (previousGameId) {
+          const previousGame = getGame(store, previousGameId);
+          if (previousGame) {
+            io.to(`game:${previousGameId}`).emit("rematchCreated", { gameId, creatorName: playerName });
+          }
+        }
 
         callback?.({ gameId, playerId });
       } catch (error) {
@@ -207,6 +215,47 @@ export function registerSocketHandlers(io: IO, store: GameStore) {
 
         emitState(gameId);
         callback?.({ gameId, playerId });
+      } catch (error) {
+        callback?.({ error: error instanceof Error ? error.message : String(error) });
+      }
+    });
+
+    socket.on("leaveGame", (payload, callback) => {
+      try {
+        const session = getSession(store, socket.id);
+        if (!session) {
+          callback?.({ ok: true });
+          return;
+        }
+
+        const game = getGame(store, session.gameId);
+        if (game && session.playerId) {
+          const record = getGameRecord(store, game.id);
+          const started = Boolean(record?.started);
+          const player = game.players[session.playerId];
+          if (player) {
+            if (!started) {
+              delete game.players[session.playerId];
+            } else {
+              player.connected = false;
+            }
+          }
+        }
+
+        socket.leave(`game:${session.gameId}`);
+        clearSession(store, socket.id);
+
+        if (game) {
+          const hasConnectedPlayers = getSocketsForGame(store, game.id).some(([, s]) => s.playerId !== null);
+          if (!hasConnectedPlayers) {
+            deleteGame(store, game.id);
+          } else {
+            emitState(game.id);
+          }
+          emitGamesList();
+        }
+
+        callback?.({ ok: true });
       } catch (error) {
         callback?.({ error: error instanceof Error ? error.message : String(error) });
       }

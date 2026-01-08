@@ -1,4 +1,4 @@
-export type ResourceType = "fusion" | "terrain" | "metal" | "crystal" | "ceveron";
+export type ResourceType = "fusion" | "terrain" | "metal" | "crystal";
 export type PowerupKey = "stellarBomb" | "terraform" | "defenseNet" | "wormhole";
 export type Phase = "planning" | "resolving" | "complete";
 export type MapSize = "small" | "medium" | "large" | "massive";
@@ -31,10 +31,17 @@ export interface MoveOrder {
   count: number;
 }
 
-export interface PowerupOrder {
-  type: PowerupKey;
-  targetId: string;
+export interface WormholeLink {
+  fromId: string;
+  toId: string;
+  turnsRemaining: number;
 }
+
+export type PowerupOrder =
+  | { type: "stellarBomb"; targetId: string }
+  | { type: "terraform"; targetId: string }
+  | { type: "defenseNet"; targetId: string }
+  | { type: "wormhole"; fromId: string; toId: string };
 
 export interface ResearchOrder {
   resource: ResourceType;
@@ -64,7 +71,6 @@ export interface PlayerState {
   research: ResourceMap;
   powerups: PlayerPowerups;
   fleetsToPlace: number;
-  wormholeTurns: number;
   alliances: Record<string, number>;
   connected?: boolean;
   locked: boolean;
@@ -124,6 +130,7 @@ export interface GameState {
   turnEndsAt: number | null;
   systems: SystemState[];
   links: Record<string, string[]>;
+  wormholes: WormholeLink[];
   players: Record<string, PlayerState>;
   log: unknown[];
   winnerId: string | null;

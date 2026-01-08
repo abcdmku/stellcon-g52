@@ -1,9 +1,11 @@
 import type { MouseEvent } from "react";
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { clamp, RESOLUTION_TRAVEL_MS, RESOURCE_COLORS, RESOURCE_TYPES } from "@stellcon/shared";
-import type { GameState, Orders, PowerupKey, SystemState } from "@stellcon/shared";
+import type { GameState, Orders, PowerupKey, SystemState, WormholeLink } from "@stellcon/shared";
+import { PowerupIcon } from "../../shared/components/PowerupIcon";
 import { hexToRgba } from "../../shared/lib/color";
 import { axialDistanceCoords, axialToPixel, trimLineToHexEdges } from "../../shared/lib/hex";
+import StellarBombExplosion from "./StellarBombExplosion";
 
 const HEX_SIZE = 56;
 const MIN_SCALE = 0.35;
@@ -16,6 +18,7 @@ const MOVE_BADGE_SCALE = 0.78;
 const MOVE_BADGE_POINTS = "-16,-11 16,0 -16,11 -10,0";
 const MOVE_VERTICAL_RATIO = 0.35;
 const RESOURCE_MAX = 5;
+const DRAG_THRESHOLD_PX = 10;
 
 function computeMoveCurveControlPoint(dx: number, len: number, mx: number, my: number, arch: number) {
   if (len <= 0.001) return { cx: mx, cy: my };
@@ -28,21 +31,14 @@ const resourceLabels = {
   terrain: "Terrain",
   metal: "Metal",
   crystal: "Crystal",
-  ceveron: "Ceveron",
 };
 
 const resourceAngles = {
-  fusion: -70,
-  terrain: -35,
-  metal: 0,
-  crystal: 35,
-  ceveron: 70,
+  fusion: -52.5,
+  terrain: -17.5,
+  metal: 17.5,
+  crystal: 52.5,
 } as const;
-
-function ceveronForTier(tier: number) {
-  const clampedTier = Math.max(0, Math.min(3, Math.floor(tier ?? 0)));
-  return clampedTier;
-}
 
 type BoardProps = {
   systems: GameState["systems"];
@@ -55,7 +51,9 @@ type BoardProps = {
   resolutionBattles?: GameState["resolutionBattles"];
   phase: GameState["phase"];
   viewerId: string | null;
-  wormholeTurns: number;
+  wormholes: WormholeLink[];
+  wormholeDraftFromId: string | null;
+  powerupFx: Array<{ type: Exclude<PowerupKey, "wormhole">; targetId: string; startedAt: number }>;
   powerupDraft: PowerupKey | "";
   powerupTargetIds: Set<string>;
   powerupHighlightColor: string;
@@ -80,7 +78,9 @@ const Board = memo(function Board({
   resolutionBattles,
   phase,
   viewerId,
-  wormholeTurns,
+  wormholes,
+  wormholeDraftFromId,
+  powerupFx,
   powerupDraft,
   powerupTargetIds,
   powerupHighlightColor,
@@ -93,6 +93,10 @@ const Board = memo(function Board({
   onMoveAdjust,
   onMoveCancel,
 }: BoardProps) {
+  const reducedMotion = useMemo(() => {
+    if (typeof window === "undefined") return false;
+    return window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches ?? false;
+  }, []);
   const [scale, setScale] = useState(1);
   const [offset, setOffset] = useState({ x: 0, y: 0 });
   const boardRef = useRef(null);
@@ -100,6 +104,8 @@ const Board = memo(function Board({
   const cameraTouched = useRef(false);
   const cameraFitKey = useRef(null);
   const dragging = useRef(false);
+  const pointerDown = useRef(false);
+  const pointerCaptured = useRef(false);
   const lastPos = useRef({ x: 0, y: 0 });
   const dragStart = useRef({ x: 0, y: 0 });
   const didDrag = useRef(false);
@@ -174,30 +180,29 @@ const Board = memo(function Board({
     if (!origin || origin.ownerId !== viewerId) return new Set();
 
     const reachable = new Set();
-    if (wormholeTurns > 0) {
-      for (const system of systems) {
-        if (system.id !== moveOriginId) reachable.add(system.id);
-      }
-    } else {
-      const visited = new Set([moveOriginId]);
-      const queue = [moveOriginId];
-      while (queue.length) {
-        const current = queue.shift();
-        for (const nextId of links?.[current] || []) {
-          if (visited.has(nextId)) continue;
-          const next = systemMap.get(nextId);
-          if (!next) continue;
-          if (next.ownerId !== viewerId) continue;
-          visited.add(nextId);
-          if (nextId !== moveOriginId) reachable.add(nextId);
-          queue.push(nextId);
-        }
+    const visited = new Set([moveOriginId]);
+    const queue = [moveOriginId];
+    while (queue.length) {
+      const current = queue.shift();
+      for (const nextId of links?.[current] || []) {
+        if (visited.has(nextId)) continue;
+        const next = systemMap.get(nextId);
+        if (!next) continue;
+        if (next.ownerId !== viewerId) continue;
+        visited.add(nextId);
+        if (nextId !== moveOriginId) reachable.add(nextId);
+        queue.push(nextId);
       }
     }
 
     for (const nextId of links?.[moveOriginId] || []) reachable.add(nextId);
+    for (const wormhole of wormholes || []) {
+      if ((wormhole.turnsRemaining || 0) <= 0) continue;
+      if (wormhole.fromId === moveOriginId) reachable.add(wormhole.toId);
+      if (wormhole.toId === moveOriginId) reachable.add(wormhole.fromId);
+    }
     return reachable;
-  }, [links, moveOriginId, systems, viewerId, wormholeTurns]);
+  }, [links, moveOriginId, systems, viewerId, wormholes]);
 
   const positions = useMemo(() => {
     const entries = {};
@@ -212,6 +217,54 @@ const Board = memo(function Board({
     for (const system of systems) entries[system.id] = system;
     return entries;
   }, [systems]);
+
+  const queuedPowerupsBySystemId = useMemo(() => {
+    const map = new Map<string, PowerupKey[]>();
+    for (const action of orders?.powerups || []) {
+      if (!action) continue;
+      if (action.type === "wormhole") {
+        map.set(action.fromId, [...(map.get(action.fromId) || []), "wormhole"]);
+        map.set(action.toId, [...(map.get(action.toId) || []), "wormhole"]);
+        continue;
+      }
+      if ("targetId" in action) {
+        map.set(action.targetId, [...(map.get(action.targetId) || []), action.type]);
+      }
+    }
+    if (powerupDraft === "wormhole" && wormholeDraftFromId) {
+      map.set(wormholeDraftFromId, [...(map.get(wormholeDraftFromId) || []), "wormhole"]);
+    }
+    for (const [systemId, badges] of map.entries()) {
+      map.set(systemId, [...new Set(badges)]);
+    }
+    return map;
+  }, [orders?.powerups, powerupDraft, wormholeDraftFromId]);
+
+  const wormholeEdges = useMemo(() => {
+    const bestByKey = new Map<string, WormholeLink>();
+    for (const wormhole of wormholes || []) {
+      if (!wormhole?.fromId || !wormhole?.toId) continue;
+      const a = wormhole.fromId < wormhole.toId ? wormhole.fromId : wormhole.toId;
+      const b = wormhole.fromId < wormhole.toId ? wormhole.toId : wormhole.fromId;
+      const key = `${a}|${b}`;
+      const existing = bestByKey.get(key);
+      if (!existing || (wormhole.turnsRemaining || 0) > (existing.turnsRemaining || 0)) {
+        bestByKey.set(key, wormhole);
+      }
+    }
+    return [...bestByKey.values()];
+  }, [wormholes]);
+
+  const powerupFxBySystemId = useMemo(() => {
+    const map = new Map<string, Array<{ type: Exclude<PowerupKey, "wormhole">; startedAt: number }>>();
+    for (const fx of powerupFx || []) {
+      if (!fx?.targetId) continue;
+      map.set(fx.targetId, [...(map.get(fx.targetId) || []), { type: fx.type, startedAt: fx.startedAt }]);
+    }
+    return map;
+  }, [powerupFx]);
+
+  const stellarBombFx = useMemo(() => (powerupFx || []).filter((entry) => entry.type === "stellarBomb"), [powerupFx]);
 
   const systemsForBounds = useMemo(() => systems, [mapBoundsKey]);
   const mapPixelBounds = useMemo(() => {
@@ -738,19 +791,33 @@ const Board = memo(function Board({
       if (event.target.closest("button")) return;
     }
     cameraTouched.current = true;
-    dragging.current = true;
+    pointerDown.current = true;
+    dragging.current = false;
     didDrag.current = false;
     suppressNextClick.current = false;
     pointerIdRef.current = event.pointerId;
-    if (event.currentTarget.setPointerCapture && typeof event.pointerId === "number") {
-      event.currentTarget.setPointerCapture(event.pointerId);
-    }
+    pointerCaptured.current = false;
     lastPos.current = { x: event.clientX, y: event.clientY };
     dragStart.current = { x: event.clientX, y: event.clientY };
   };
 
   const handlePointerMove = (event) => {
-    if (dragging.current) {
+    if (pointerDown.current) {
+      const totalDx = event.clientX - dragStart.current.x;
+      const totalDy = event.clientY - dragStart.current.y;
+      if (!didDrag.current && !dragging.current) {
+        if (Math.hypot(totalDx, totalDy) <= DRAG_THRESHOLD_PX) return;
+        didDrag.current = true;
+        dragging.current = true;
+        suppressNextClick.current = true;
+        if (event.currentTarget.setPointerCapture && typeof event.pointerId === "number") {
+          event.currentTarget.setPointerCapture(event.pointerId);
+          pointerCaptured.current = true;
+        }
+        lastPos.current = { x: event.clientX, y: event.clientY };
+        return;
+      }
+
       const dx = event.clientX - lastPos.current.x;
       const dy = event.clientY - lastPos.current.y;
       offsetRef.current = { x: offsetRef.current.x + dx, y: offsetRef.current.y + dy };
@@ -761,12 +828,6 @@ const Board = memo(function Board({
         });
       }
       lastPos.current = { x: event.clientX, y: event.clientY };
-      const totalDx = event.clientX - dragStart.current.x;
-      const totalDy = event.clientY - dragStart.current.y;
-      if (!didDrag.current && Math.hypot(totalDx, totalDy) > 6) {
-        didDrag.current = true;
-        suppressNextClick.current = true;
-      }
       return;
     }
 
@@ -799,6 +860,7 @@ const Board = memo(function Board({
   };
 
   const handlePointerUp = (event) => {
+    pointerDown.current = false;
     dragging.current = false;
     if (didDrag.current) suppressNextClick.current = true;
     const isPlannedMoveControl = Boolean(event?.target?.closest && event.target.closest(".planned-move-controls"));
@@ -811,13 +873,14 @@ const Board = memo(function Board({
     }
     const pointerId = pointerIdRef.current;
     pointerIdRef.current = null;
-    if (event.currentTarget.releasePointerCapture && typeof pointerId === "number") {
+    if (pointerCaptured.current && event.currentTarget.releasePointerCapture && typeof pointerId === "number") {
       try {
         event.currentTarget.releasePointerCapture(pointerId);
       } catch {
         // ignore
       }
     }
+    pointerCaptured.current = false;
     if (!isPlannedMoveControl) setHoveredMoveIndex(null);
   };
 
@@ -847,6 +910,31 @@ const Board = memo(function Board({
                 y2={coords.y2}
                 className="lane-line"
               />
+            );
+          })}
+          {wormholeEdges.map((wormhole) => {
+            const from = positions[wormhole.fromId];
+            const to = positions[wormhole.toId];
+            if (!from || !to) return null;
+            const dashed = (wormhole.turnsRemaining || 0) === 1;
+            const coords = trimLineToHexEdges(from, to, { size: HEX_SIZE, pad: 10 });
+            return (
+              <g key={`wormhole-${wormhole.fromId}-${wormhole.toId}`}>
+                <line
+                  x1={coords.x1}
+                  y1={coords.y1}
+                  x2={coords.x2}
+                  y2={coords.y2}
+                  className={dashed ? "wormhole-line dashed" : "wormhole-line"}
+                />
+                <line
+                  x1={coords.x1}
+                  y1={coords.y1}
+                  x2={coords.x2}
+                  y2={coords.y2}
+                  className={dashed ? "wormhole-line-pulse dashed" : "wormhole-line-pulse"}
+                />
+              </g>
             );
           })}
           {movePaths.map((path) => {
@@ -1017,14 +1105,20 @@ const Board = memo(function Board({
           const isNeighbor = neighborIds.has(system.id);
           const isOrigin = moveOriginId === system.id;
           const isPowerupTarget = Boolean(powerupDraft) && Boolean(powerupTargetIds?.has?.(system.id));
+          const isWormholeFrom = Boolean(wormholeDraftFromId) && wormholeDraftFromId === system.id;
           if (selectedId === system.id) classes.push("selected");
           if (isNeighbor) classes.push("neighbor");
           if (isOrigin) classes.push("origin");
           if (battleOngoing) classes.push("combat");
           if (isPowerupTarget) classes.push("powerup-target");
+          if (isWormholeFrom) classes.push("wormhole-from");
+          if (system.defenseNetTurns > 0) classes.push("defense-net-active");
+          if (system.terraformed) classes.push("terraformed");
           if (placementMode && phase === "planning" && fleetsRemaining > 0 && viewerId && system.ownerId === viewerId) {
             classes.push("placeable");
           }
+          const queuedBadges = queuedPowerupsBySystemId.get(system.id) || [];
+          const fx = (powerupFxBySystemId.get(system.id) || []).filter((entry) => entry.type !== "stellarBomb");
           return (
             <div
               key={system.id}
@@ -1046,6 +1140,25 @@ const Board = memo(function Board({
               }}
               role="button"
             >
+              {queuedBadges.length ? (
+                <div className="hex-powerup-badges" aria-label="Queued powerups">
+                  {queuedBadges.map((type) => (
+                    <div key={`${system.id}-queued-${type}`} className={`hex-powerup-badge badge-${type}`}>
+                      <PowerupIcon type={type} size={14} />
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+              {fx.length ? (
+                <div className="hex-fx" aria-hidden="true">
+                  {fx.map((entry) => (
+                    <div
+                      key={`${system.id}-fx-${entry.type}-${entry.startedAt}`}
+                      className={`hex-fx-item fx-${entry.type}`}
+                    />
+                  ))}
+                </div>
+              ) : null}
               <div className="hex-border" />
               <div className="hex-core" />
               <div className="hex-value">{displayedFleets}</div>
@@ -1056,7 +1169,7 @@ const Board = memo(function Board({
               </div>
               <div className="hex-resources" aria-label="Resources">
                 {RESOURCE_TYPES.map((key) => {
-                  const value = key === "ceveron" ? ceveronForTier(system.tier ?? 0) : (system.resources?.[key] ?? 0);
+                  const value = system.resources?.[key] ?? 0;
                   const fill = clamp(value / RESOURCE_MAX, 0, 1);
                   const level = value <= 0 ? "None" : `${Math.min(value, RESOURCE_MAX)}/${RESOURCE_MAX}`;
                   return (
@@ -1072,6 +1185,22 @@ const Board = memo(function Board({
               </div>
               {placement > 0 ? <div className="hex-placement">+{placement}</div> : null}
               {system.defenseNetTurns > 0 ? <div className="hex-shield">DN</div> : null}
+            </div>
+          );
+        })}
+        {stellarBombFx.map((entry) => {
+          const pos = positions[entry.targetId];
+          if (!pos) return null;
+          const key = `stellarBomb-${entry.targetId}-${entry.startedAt}`;
+          return (
+            <div
+              key={key}
+              className="stellar-bomb-explosion"
+              style={{ left: `${pos.x}px`, top: `${pos.y}px` }}
+              aria-hidden="true"
+            >
+              <div className="stellar-bomb-flash" />
+              <StellarBombExplosion id={key} reducedMotion={reducedMotion} />
             </div>
           );
         })}
