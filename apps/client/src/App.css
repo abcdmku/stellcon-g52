@@ -50,15 +50,15 @@
 
 .corner-brand {
   position: fixed;
-  top: 14px;
-  left: 16px;
+  top: 24px;
+  left: 24px;
   z-index: 230;
   pointer-events: none;
   opacity: 0.75;
 }
 
 .corner-brand .lobby-brand-title {
-  font-size: clamp(14px, 1.8vw, 18px);
+  font-size: clamp(32px, 2vw, 20px);
   letter-spacing: 0.22em;
   filter: drop-shadow(0 6px 14px rgba(0, 0, 0, 0.45));
   text-shadow:
@@ -227,6 +227,10 @@ button:disabled {
 
 .overlay-section.right {
   width: 320px;
+}
+
+.overlay-section.left {
+  margin-top: 44px;
 }
 
 .panel {
@@ -3193,6 +3197,7 @@ button:disabled {
 
   .overlay-section.left {
     order: 3;
+    margin-top: 0;
   }
 
   .overlay-section,
