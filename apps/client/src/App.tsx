@@ -42,6 +42,180 @@ const powerupHelp = {
 };
 
 type PlayerColor = (typeof PLAYER_COLORS)[number];
+type ResourceKey = (typeof RESOURCE_TYPES)[number];
+
+type EndgameStatsTabId = "fleetProduction" | "systemsOwned" | ResourceKey;
+type EndgamePlayerTurnStats = {
+  fleetProduction: number;
+  systemsOwned: number;
+  income: Record<ResourceKey, number>;
+};
+type EndgameTurnSnapshot = {
+  turn: number;
+  byPlayerId: Record<string, EndgamePlayerTurnStats>;
+};
+
+type ChartSeries = {
+  id: string;
+  label: string;
+  color: string;
+  values: number[];
+};
+
+function StatsLineChart({
+  turns,
+  series,
+  valueLabel,
+}: {
+  turns: number[];
+  series: ChartSeries[];
+  valueLabel: string;
+}) {
+  const width = 760;
+  const height = 260;
+  const padding = { left: 44, right: 16, top: 18, bottom: 34 };
+  const plotWidth = width - padding.left - padding.right;
+  const plotHeight = height - padding.top - padding.bottom;
+
+  const allValues = series.flatMap((entry) => entry.values);
+  const maxValue = Math.max(1, ...allValues, 0);
+
+  const xAt = (index: number) => {
+    if (turns.length <= 1) return padding.left + plotWidth / 2;
+    return padding.left + (plotWidth * index) / (turns.length - 1);
+  };
+  const yAt = (value: number) => padding.top + plotHeight - (plotHeight * value) / maxValue;
+
+  const yTicks = 4;
+  const tickIndices = turns.length <= 1 ? [0] : [0, Math.floor((turns.length - 1) / 2), turns.length - 1].filter((value, index, arr) => arr.indexOf(value) === index);
+
+  return (
+    <svg className="stats-chart-svg" viewBox={`0 0 ${width} ${height}`} role="img" aria-label={`${valueLabel} by turn`}>
+      <rect x={padding.left} y={padding.top} width={plotWidth} height={plotHeight} rx={14} fill="rgba(10, 14, 24, 0.55)" />
+
+      {Array.from({ length: yTicks + 1 }).map((_, index) => {
+        const ratio = index / yTicks;
+        const value = Math.round(maxValue * ratio);
+        const y = yAt(value);
+        return (
+          <g key={`y-grid-${value}`}>
+            <line x1={padding.left} x2={padding.left + plotWidth} y1={y} y2={y} stroke="rgba(255, 255, 255, 0.08)" strokeWidth={1} />
+            <text x={padding.left - 10} y={y + 4} textAnchor="end" fontSize={11} fill="rgba(219, 238, 255, 0.65)">
+              {value}
+            </text>
+          </g>
+        );
+      })}
+
+      {tickIndices.map((index) => {
+        const x = xAt(index);
+        const turn = turns[index];
+        return (
+          <g key={`x-tick-${turn}`}>
+            <text x={x} y={height - 12} textAnchor="middle" fontSize={11} fill="rgba(219, 238, 255, 0.65)">
+              T{turn}
+            </text>
+          </g>
+        );
+      })}
+
+      {series.map((entry) => {
+        const points = entry.values.map((value, index) => `${xAt(index)},${yAt(value)}`).join(" ");
+        return (
+          <g key={`series-${entry.id}`}>
+            <polyline points={points} fill="none" stroke={entry.color} strokeWidth={3} strokeLinejoin="round" strokeLinecap="round" opacity={0.95} />
+            {entry.values.map((value, index) => (
+              <circle key={`dot-${entry.id}-${turns[index]}`} cx={xAt(index)} cy={yAt(value)} r={3.3} fill={entry.color} stroke="rgba(5, 8, 16, 0.65)" strokeWidth={2} />
+            ))}
+          </g>
+        );
+      })}
+    </svg>
+  );
+}
+
+function EndgameStatsModal({
+  open,
+  tab,
+  tabs,
+  history,
+  players,
+  onClose,
+  onTabChange,
+}: {
+  open: boolean;
+  tab: EndgameStatsTabId;
+  tabs: Array<{ id: EndgameStatsTabId; label: string }>;
+  history: EndgameTurnSnapshot[];
+  players: Array<{ id: string; name: string; color: string }>;
+  onClose: () => void;
+  onTabChange: (tab: EndgameStatsTabId) => void;
+}) {
+  if (!open) return null;
+
+  const valueLabel = tabs.find((entry) => entry.id === tab)?.label || "Stats";
+  const turns = history.map((entry) => entry.turn);
+
+  const getValue = (stats: EndgamePlayerTurnStats | undefined) => {
+    if (!stats) return 0;
+    if (tab === "fleetProduction") return stats.fleetProduction;
+    if (tab === "systemsOwned") return stats.systemsOwned;
+    return stats.income?.[tab] ?? 0;
+  };
+
+  const series: ChartSeries[] = players.map((player) => ({
+    id: player.id,
+    label: player.name || player.id,
+    color: player.color,
+    values: history.map((entry) => getValue(entry.byPlayerId[player.id])),
+  }));
+
+  return (
+    <div className="stats-overlay" role="dialog" aria-modal="true" aria-label="Game stats">
+      <div className="stats-card">
+        <div className="stats-header">
+          <div>
+            <div className="stats-title">Game stats</div>
+            <div className="stats-subtitle">{turns.length ? `Turns: ${turns[0]}-${turns[turns.length - 1]}` : "No turn history yet"}</div>
+          </div>
+          <button type="button" className="stats-close" onClick={onClose} aria-label="Close stats">
+            ×
+          </button>
+        </div>
+
+        <div className="stats-tabs" role="tablist" aria-label="Stats charts">
+          {tabs.map((entry) => (
+            <button
+              key={entry.id}
+              type="button"
+              className={`stats-tab${tab === entry.id ? " active" : ""}`}
+              onClick={() => onTabChange(entry.id)}
+              role="tab"
+              aria-selected={tab === entry.id}
+            >
+              {entry.label}
+            </button>
+          ))}
+        </div>
+
+        {turns.length ? (
+          <StatsLineChart turns={turns} series={series} valueLabel={valueLabel} />
+        ) : (
+          <div className="stats-empty">No stats captured yet.</div>
+        )}
+
+        <div className="stats-legend" aria-label="Players">
+          {players.map((player) => (
+            <div key={`legend-${player.id}`} className="stats-legend-item">
+              <span className="stats-legend-swatch" style={{ background: player.color }} aria-hidden="true" />
+              <span className="stats-legend-label">{player.name || player.id}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function FleetIcon({ size = 14 }: { size?: number }) {
   return (
@@ -127,6 +301,10 @@ function App() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [endgameDismissed, setEndgameDismissed] = useState(false);
+  const [endgameStatsOpen, setEndgameStatsOpen] = useState(false);
+  const [endgameStatsTab, setEndgameStatsTab] = useState<EndgameStatsTabId>("fleetProduction");
+  const [endgameStatsToastDismissed, setEndgameStatsToastDismissed] = useState(false);
+  const [endgameTurnHistory, setEndgameTurnHistory] = useState<EndgameTurnSnapshot[]>([]);
   const { orders, resetOrders, replaceOrders, applyPlacement, queuePowerup, queueWormhole, queueMove, removeMove, adjustMove } =
     useOrders(DEMO_MODE ? (demoState.players[demoPlayerId].orders as Orders) : emptyOrders());
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -142,6 +320,7 @@ function App() {
   const [timer, setTimer] = useState(0);
   const [availableGames, setAvailableGames] = useState<GameListItem[]>([]);
   const lastSeenTurnRef = useRef<{ turn: number | null; phase: string | null }>({ turn: null, phase: null });
+  const lastStatsSnapshotRef = useRef<{ turn: number | null; phase: string | null }>({ turn: null, phase: null });
   const noticeTimeoutRef = useRef<number | null>(null);
   const powerupFxTimeoutRef = useRef<number[]>([]);
   const lastResolutionStartedAtRef = useRef<number | null>(null);
@@ -413,6 +592,35 @@ function App() {
   }, [fleetsRemaining, placementMode, state?.phase]);
 
   useEffect(() => {
+    if (!state || state.turn == null) return;
+    if (state.phase !== "planning" && state.phase !== "complete") return;
+
+    const last = lastStatsSnapshotRef.current;
+    const isNewPlanningTurn = state.phase === "planning" && last.turn !== state.turn;
+    const isNewCompleteSnapshot = state.phase === "complete" && (last.phase !== "complete" || last.turn !== state.turn);
+    if (!isNewPlanningTurn && !isNewCompleteSnapshot) return;
+
+    const snapshot: EndgameTurnSnapshot = { turn: state.turn, byPlayerId: {} };
+    for (const player of Object.values(state.players || {})) {
+      const income = computeIncome(state, player.id);
+      snapshot.byPlayerId[player.id] = {
+        fleetProduction: income.fleets,
+        systemsOwned: systems.filter((system) => system.ownerId === player.id).length,
+        income: income.totals,
+      };
+    }
+
+    setEndgameTurnHistory((current) => {
+      const next = current.filter((entry) => entry.turn !== snapshot.turn);
+      next.push(snapshot);
+      next.sort((a, b) => a.turn - b.turn);
+      return next;
+    });
+
+    lastStatsSnapshotRef.current = { turn: state.turn, phase: state.phase };
+  }, [state, systems]);
+
+  useEffect(() => {
     if (state?.phase === "planning") return;
     setMoveOriginId(null);
     setPowerupDraft("");
@@ -425,6 +633,11 @@ function App() {
 
   useEffect(() => {
     setEndgameDismissed(false);
+    setEndgameStatsOpen(false);
+    setEndgameStatsTab("fleetProduction");
+    setEndgameStatsToastDismissed(false);
+    setEndgameTurnHistory([]);
+    lastStatsSnapshotRef.current = { turn: null, phase: null };
     setSelectedId(null);
     setRematchInfo(null);
     setPendingAllianceFromIds({});
@@ -457,6 +670,23 @@ function App() {
   useEffect(() => {
     if (powerupDraft !== "wormhole") setWormholeFromId(null);
   }, [powerupDraft]);
+
+  const handleCloseEndgame = () => {
+    setEndgameDismissed(true);
+    setEndgameStatsToastDismissed(false);
+  };
+
+  const endgameStatsTabs: Array<{ id: EndgameStatsTabId; label: string }> = useMemo(
+    () => [
+      { id: "fleetProduction", label: "Fleet production" },
+      { id: "systemsOwned", label: "Tiles owned" },
+      { id: "fusion", label: "Fusion income" },
+      { id: "terrain", label: "Terrain income" },
+      { id: "metal", label: "Metal income" },
+      { id: "crystal", label: "Crystal income" },
+    ],
+    []
+  );
 
   useEffect(() => {
     if (!state?.systems?.length) return;
@@ -1317,12 +1547,25 @@ function App() {
             </button>
           </div>
         ) : null}
+        {isComplete && endgameDismissed && !endgameStatsToastDismissed ? (
+          <div className="notice endgame-toast" role="status" aria-label="Game complete stats toast">
+            <div className="endgame-toast-text">Game complete. View stats by turn.</div>
+            <div className="endgame-toast-actions">
+              <button type="button" className="secondary" onClick={() => setEndgameStatsOpen(true)}>
+                View stats
+              </button>
+              <button type="button" className="secondary toast-dismiss" onClick={() => setEndgameStatsToastDismissed(true)} aria-label="Dismiss stats toast">
+                ×
+              </button>
+            </div>
+          </div>
+        ) : null}
       </div>
 
       {isComplete && !endgameDismissed ? (
         <div className="endgame">
           <div className="endgame-card">
-            <button type="button" className="endgame-close" onClick={() => setEndgameDismissed(true)} aria-label="Close">
+            <button type="button" className="endgame-close" onClick={handleCloseEndgame} aria-label="Close">
               ×
             </button>
             <div className="endgame-winner">
@@ -1382,6 +1625,16 @@ function App() {
           </div>
         </div>
       ) : null}
+
+      <EndgameStatsModal
+        open={isComplete && endgameStatsOpen}
+        tab={endgameStatsTab}
+        tabs={endgameStatsTabs}
+        history={endgameTurnHistory}
+        players={rankedPlayers.map((player) => ({ id: player.id, name: player.name || player.id, color: player.color || "#8c9bbe" }))}
+        onClose={() => setEndgameStatsOpen(false)}
+        onTabChange={setEndgameStatsTab}
+      />
 
       {canJoinGame ? (
         <div className="join-prompt-overlay">

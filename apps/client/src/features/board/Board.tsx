@@ -225,7 +225,11 @@ const Board = memo(function Board({
   }, [systems]);
 
   // Viewport virtualization - only render systems visible in current view
+  // Use a separate state for viewport calculation that updates less frequently
   const [viewportSize, setViewportSize] = useState({ width: 2000, height: 1500 });
+  const [stableCamera, setStableCamera] = useState({ offset: { x: 0, y: 0 }, scale: 1 });
+  const cameraUpdateTimeoutRef = useRef<number | null>(null);
+
   useEffect(() => {
     const updateSize = () => {
       const board = boardRef.current;
@@ -239,13 +243,28 @@ const Board = memo(function Board({
     return () => window.removeEventListener("resize", updateSize);
   }, []);
 
+  // Debounce camera updates for virtualization to avoid recalculating during active pan/zoom
+  useEffect(() => {
+    if (cameraUpdateTimeoutRef.current) {
+      window.clearTimeout(cameraUpdateTimeoutRef.current);
+    }
+    cameraUpdateTimeoutRef.current = window.setTimeout(() => {
+      setStableCamera({ offset, scale });
+    }, 150);
+    return () => {
+      if (cameraUpdateTimeoutRef.current) {
+        window.clearTimeout(cameraUpdateTimeoutRef.current);
+      }
+    };
+  }, [offset, scale]);
+
   const visibleSystems = useMemo(() => {
-    // Add generous padding to avoid pop-in during panning
-    const padding = HEX_SIZE * 2;
-    const halfWidth = (viewportSize.width / 2 / scale) + padding;
-    const halfHeight = (viewportSize.height / 2 / scale) + padding;
-    const centerX = -offset.x / scale;
-    const centerY = -offset.y / scale;
+    // Add very generous padding to avoid pop-in during panning
+    const padding = HEX_SIZE * 4;
+    const halfWidth = (viewportSize.width / 2 / stableCamera.scale) + padding;
+    const halfHeight = (viewportSize.height / 2 / stableCamera.scale) + padding;
+    const centerX = -stableCamera.offset.x / stableCamera.scale;
+    const centerY = -stableCamera.offset.y / stableCamera.scale;
 
     return systems.filter((system) => {
       const pos = positions[system.id];
@@ -257,7 +276,7 @@ const Board = memo(function Board({
         pos.y <= centerY + halfHeight
       );
     });
-  }, [systems, positions, offset, scale, viewportSize]);
+  }, [systems, positions, stableCamera, viewportSize]);
 
   const queuedPowerupsBySystemId = useMemo(() => {
     const map = new Map<string, PowerupKey[]>();
@@ -809,7 +828,8 @@ const Board = memo(function Board({
     const anchorX = event.clientX - (rect.left + rect.width / 2);
     const anchorY = event.clientY - (rect.top + rect.height / 2);
 
-    const delta = event.deltaY > 0 ? -0.08 : 0.08;
+    // Smoother zoom with smaller increments
+    const delta = event.deltaY > 0 ? -0.06 : 0.06;
     const nextScale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, currentScale + delta));
     if (nextScale === currentScale) return;
 
@@ -817,24 +837,26 @@ const Board = memo(function Board({
     const worldY = (anchorY - currentOffset.y) / currentScale;
     const nextOffset = { x: anchorX - worldX * nextScale, y: anchorY - worldY * nextScale };
 
+    // Update refs immediately for smooth visual feedback
     scaleRef.current = nextScale;
     offsetRef.current = nextOffset;
-    setScale(nextScale);
-    setOffset(nextOffset);
-    bustHexRasterization();
 
-    if (redrawTimeoutRef.current) window.clearTimeout(redrawTimeoutRef.current);
-    redrawTimeoutRef.current = window.setTimeout(() => {
-      redrawTimeoutRef.current = null;
-      applyCanvasTransform(true);
-      bustHexRasterization();
-    }, 120);
+    // Apply transform immediately via RAF for smooth animation
     if (!panRaf.current) {
       panRaf.current = requestAnimationFrame(() => {
         panRaf.current = 0;
         applyCanvasTransform();
       });
     }
+
+    // Debounce React state updates to reduce re-renders during zooming
+    if (redrawTimeoutRef.current) window.clearTimeout(redrawTimeoutRef.current);
+    redrawTimeoutRef.current = window.setTimeout(() => {
+      redrawTimeoutRef.current = null;
+      setScale(scaleRef.current);
+      setOffset(offsetRef.current);
+      bustHexRasterization();
+    }, 32); // ~2 frames at 60fps
   };
 
   const handlePointerDown = (event) => {
@@ -886,11 +908,14 @@ const Board = memo(function Board({
     if (event.target?.closest?.(".planned-move-controls")) return;
 
     // Throttle hover detection using requestAnimationFrame
+    // Use refs for current camera position to avoid stale closure values
     const rect = event.currentTarget.getBoundingClientRect();
     const centerX = rect.left + rect.width / 2;
     const centerY = rect.top + rect.height / 2;
-    const x = (event.clientX - centerX - offset.x) / scale;
-    const y = (event.clientY - centerY - offset.y) / scale;
+    const currentOffset = offsetRef.current;
+    const currentScale = scaleRef.current;
+    const x = (event.clientX - centerX - currentOffset.x) / currentScale;
+    const y = (event.clientY - centerY - currentOffset.y) / currentScale;
 
     pendingHoverRef.current = { x, y };
 

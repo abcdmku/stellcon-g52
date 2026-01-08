@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@stellcon/shared": "workspace:*",
+    "@tanstack/react-virtual": "^3.13.18",
     "@tsparticles/react": "^3.0.0",
     "@tsparticles/slim": "^3.9.1",
     "react": "^19.2.0",
