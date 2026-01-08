@@ -570,13 +570,6 @@ button:disabled {
   z-index: 6;
 }
 
-.planned-move-controls {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  z-index: 62;
-}
-
 .move-count {
   position: absolute;
   transform: translate(-50%, -50%);
@@ -596,21 +589,27 @@ button:disabled {
   display: flex;
   transform: translate(-50%, 0);
   pointer-events: auto;
-  border-radius: 4px;
+  inset: auto;
+  z-index: 120;
+  border-radius: 8px;
   overflow: hidden;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.48);
   border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(8, 12, 22, 0.92);
 }
 
 .planned-move-controls > button {
   all: unset;
   box-sizing: border-box;
-  width: 20px;
-  height: 18px;
-  background: rgba(8, 12, 22, 0.9);
-  color: #fff;
-  font: bold 12px/18px Arial, sans-serif;
-  text-align: center;
+  width: 18px;
+  height: 14px;
+  display: grid;
+  place-items: center;
+  color: rgba(255, 255, 255, 0.95);
+  font-family: "Chakra Petch", sans-serif;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 14px;
   cursor: pointer;
   border-right: 1px solid rgba(255, 255, 255, 0.1);
 }
@@ -620,15 +619,15 @@ button:disabled {
 }
 
 .planned-move-controls > button:hover {
-  background: rgba(40, 50, 70, 0.95);
+  background: rgba(40, 50, 70, 0.75);
 }
 
 .planned-move-controls > button.cancel {
-  background: rgba(100, 30, 40, 0.9);
+  background: rgba(100, 30, 40, 0.85);
 }
 
 .planned-move-controls > button.cancel:hover {
-  background: rgba(130, 40, 55, 0.95);
+  background: rgba(130, 40, 55, 0.9);
 }
 
 @keyframes move-flow {

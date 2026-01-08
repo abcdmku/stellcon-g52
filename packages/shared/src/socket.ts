@@ -34,6 +34,14 @@ export interface AcceptAlliancePayload {
   fromId: string;
 }
 
+export interface RetractAlliancePayload {
+  targetId: string;
+}
+
+export interface DeclineAlliancePayload {
+  fromId: string;
+}
+
 export interface GameIdResponse {
   gameId: string;
   playerId: string;
@@ -57,6 +65,8 @@ export interface ServerToClientEvents {
   gameState: (state: GameState) => void;
   gamesList: (games: GameListItem[]) => void;
   allianceRequest: (payload: { fromId: string }) => void;
+  allianceRetracted: (payload: { fromId: string }) => void;
+  allianceDeclined: (payload: { byId: string }) => void;
   rematchCreated: (payload: { gameId: string; creatorName: string }) => void;
 }
 
@@ -71,5 +81,7 @@ export interface ClientToServerEvents {
   lockIn: (payload: unknown, callback?: (response: MaybeError<OkResponse>) => void) => void;
   requestAlliance: (payload: RequestAlliancePayload, callback?: (response: MaybeError<OkResponse>) => void) => void;
   acceptAlliance: (payload: AcceptAlliancePayload, callback?: (response: MaybeError<OkResponse>) => void) => void;
+  retractAlliance: (payload: RetractAlliancePayload, callback?: (response: MaybeError<OkResponse>) => void) => void;
+  declineAlliance: (payload: DeclineAlliancePayload, callback?: (response: MaybeError<OkResponse>) => void) => void;
   startGameEarly: (payload: unknown, callback?: (response: MaybeError<OkResponse>) => void) => void;
 }
