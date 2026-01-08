@@ -832,6 +832,7 @@ const Board = memo(function Board({
     }
 
     if (phase !== "planning") return;
+    if (event.target?.closest?.(".planned-move-controls")) return;
     const rect = event.currentTarget.getBoundingClientRect();
     const centerX = rect.left + rect.width / 2;
     const centerY = rect.top + rect.height / 2;
@@ -855,7 +856,7 @@ const Board = memo(function Board({
       }
     }
 
-    const threshold2 = 28 * 28;
+    const threshold2 = 18 * 18;
     setHoveredMoveIndex(best.dist2 <= threshold2 ? best.index : null);
   };
 
@@ -884,6 +885,18 @@ const Board = memo(function Board({
     if (!isPlannedMoveControl) setHoveredMoveIndex(null);
   };
 
+  const handleBoardClick = (event: React.MouseEvent) => {
+    if (suppressNextClick.current) {
+      suppressNextClick.current = false;
+      return;
+    }
+    // Only trigger background click if the click target is the board itself or the canvas
+    const target = event.target as HTMLElement;
+    if (target.classList.contains("board") || target.classList.contains("board-canvas") || target.classList.contains("board-links")) {
+      onBackgroundClick?.();
+    }
+  };
+
   return (
     <div
       className="board"
@@ -893,6 +906,7 @@ const Board = memo(function Board({
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
       onPointerLeave={handlePointerUp}
+      onClick={handleBoardClick}
     >
       <div className="board-canvas" ref={canvasRef}>
         <svg className="board-links" viewBox="-3000 -2200 6000 4400">
@@ -984,61 +998,22 @@ const Board = memo(function Board({
             );
           })}
         </svg>
-        {phase === "planning" && hoveredMoveIndex != null ? (
-          <div className="planned-move-controls">
-            {(() => {
-              const path = plannedMovePaths.find((entry) => entry.index === hoveredMoveIndex);
-              if (!path) return null;
-              const mx = path.labelX;
-              const my = path.labelY;
-              const controlGap = 18;
-              const controlLift = 26;
-              const x1 = mx - controlGap;
-              const y1 = my + controlLift;
-              const x2 = mx;
-              const y2 = my + controlLift;
-              const x3 = mx + controlGap;
-              const y3 = my + controlLift;
-              return (
-                <>
-                  <button
-                    type="button"
-                    className="move-btn"
-                    style={{ left: `${x1}px`, top: `${y1}px` }}
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      onMoveAdjust(path.index, -1);
-                    }}
-                  >
-                    -
-                  </button>
-                  <button
-                    type="button"
-                    className="move-btn cancel"
-                    style={{ left: `${x2}px`, top: `${y2}px` }}
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      onMoveCancel(path.index);
-                    }}
-                  >
-                    x
-                  </button>
-                  <button
-                    type="button"
-                    className="move-btn"
-                    style={{ left: `${x3}px`, top: `${y3}px` }}
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      onMoveAdjust(path.index, 1);
-                    }}
-                  >
-                    +
-                  </button>
-                </>
-              );
-            })()}
-          </div>
-        ) : null}
+        {phase === "planning" && hoveredMoveIndex != null ? (() => {
+          const path = plannedMovePaths.find((entry) => entry.index === hoveredMoveIndex);
+          if (!path) return null;
+          const cx = path.labelX;
+          const cy = path.labelY + 22;
+          return (
+            <div
+              className="planned-move-controls"
+              style={{ left: `${cx}px`, top: `${cy}px` }}
+            >
+              <button type="button" onClick={(e) => { e.stopPropagation(); onMoveAdjust(path.index, -1); }}>−</button>
+              <button type="button" className="cancel" onClick={(e) => { e.stopPropagation(); onMoveCancel(path.index); }}>×</button>
+              <button type="button" onClick={(e) => { e.stopPropagation(); onMoveAdjust(path.index, 1); }}>+</button>
+            </div>
+          );
+        })() : null}
         {particleTiming
           ? particles.map((particle) => {
               const delayMs = (particle.index % 4) * 30;
