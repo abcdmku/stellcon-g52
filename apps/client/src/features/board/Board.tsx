@@ -1002,7 +1002,7 @@ const Board = memo(function Board({
           const path = plannedMovePaths.find((entry) => entry.index === hoveredMoveIndex);
           if (!path) return null;
           const cx = path.labelX;
-          const cy = path.labelY + 22;
+          const cy = path.labelY + 12;
           return (
             <div
               className="planned-move-controls"
