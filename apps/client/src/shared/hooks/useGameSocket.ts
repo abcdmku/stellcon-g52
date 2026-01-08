@@ -4,10 +4,12 @@ import type {
   AcceptAlliancePayload,
   ClientToServerEvents,
   CreateGamePayload,
+  DeclineAlliancePayload,
   JoinGamePayload,
   MaybeError,
   OkResponse,
   RequestAlliancePayload,
+  RetractAlliancePayload,
   ServerToClientEvents,
   WatchGamePayload,
   RejoinGamePayload,
@@ -23,6 +25,8 @@ type SocketCallbacks = {
   onGameState: (state: GameState) => void;
   onGamesList: (games: GameListItem[]) => void;
   onAllianceRequest: (fromId: string) => void;
+  onAllianceRetracted: (fromId: string) => void;
+  onAllianceDeclined: (byId: string) => void;
   onRematchCreated: (gameId: string, creatorName: string) => void;
 };
 
@@ -43,11 +47,15 @@ export function useGameSocket(serverUrl: string, demoMode: boolean, callbacks: S
     socket.on("gameState", callbacks.onGameState);
     socket.on("gamesList", callbacks.onGamesList);
     socket.on("allianceRequest", ({ fromId }) => callbacks.onAllianceRequest(fromId));
+    socket.on("allianceRetracted", ({ fromId }) => callbacks.onAllianceRetracted(fromId));
+    socket.on("allianceDeclined", ({ byId }) => callbacks.onAllianceDeclined(byId));
     socket.on("rematchCreated", ({ gameId, creatorName }) => callbacks.onRematchCreated(gameId, creatorName));
     return () => {
       socket.off("gameState");
       socket.off("gamesList");
       socket.off("allianceRequest");
+      socket.off("allianceRetracted");
+      socket.off("allianceDeclined");
       socket.off("rematchCreated");
     };
   }, [callbacks, socket]);
@@ -122,6 +130,20 @@ export function useGameSocket(serverUrl: string, demoMode: boolean, callbacks: S
     [socket]
   );
 
+  const retractAlliance = useCallback(
+    (payload: RetractAlliancePayload, callback?: (response: MaybeError<OkResponse>) => void) => {
+      socket?.emit("retractAlliance", payload, callback);
+    },
+    [socket]
+  );
+
+  const declineAlliance = useCallback(
+    (payload: DeclineAlliancePayload, callback?: (response: MaybeError<OkResponse>) => void) => {
+      socket?.emit("declineAlliance", payload, callback);
+    },
+    [socket]
+  );
+
   const startGameEarly = useCallback(
     (callback?: (response: MaybeError<OkResponse>) => void) => {
       socket?.emit("startGameEarly", null, callback);
@@ -141,6 +163,8 @@ export function useGameSocket(serverUrl: string, demoMode: boolean, callbacks: S
     lockIn,
     requestAlliance,
     acceptAlliance,
+    retractAlliance,
+    declineAlliance,
     startGameEarly,
   };
 }

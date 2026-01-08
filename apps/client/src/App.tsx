@@ -136,6 +136,9 @@ function App() {
   const [wormholeFromId, setWormholeFromId] = useState<string | null>(null);
   const [powerupFx, setPowerupFx] = useState<Array<{ type: Exclude<PowerupKey, "wormhole">; targetId: string; startedAt: number }>>([]);
   const [pendingAllianceFromIds, setPendingAllianceFromIds] = useState<Record<string, boolean>>({});
+  const [pendingAllianceToIds, setPendingAllianceToIds] = useState<Record<string, boolean>>({});
+  const [declinedAllianceByIds, setDeclinedAllianceByIds] = useState<Record<string, boolean>>({});
+  const [alliancePopup, setAlliancePopup] = useState<{ fromId: string; fromName: string } | null>(null);
   const [timer, setTimer] = useState(0);
   const [availableGames, setAvailableGames] = useState<GameListItem[]>([]);
   const lastSeenTurnRef = useRef<{ turn: number | null; phase: string | null }>({ turn: null, phase: null });
@@ -171,6 +174,10 @@ function App() {
           const serverOrders = gameState.players?.[playerId]?.orders;
           replaceOrders(serverOrders);
           setMoveOriginId(null);
+          setSelectedId(null);
+          // Reset alliance offer states at the start of each turn (offers expire each round)
+          setPendingAllianceToIds({});
+          setDeclinedAllianceByIds({});
         }
 
         lastSeenTurnRef.current = { turn: gameState.turn, phase: gameState.phase };
@@ -189,7 +196,30 @@ function App() {
 
   const handleAllianceRequest = useCallback((fromId: string) => {
     setPendingAllianceFromIds((current) => ({ ...current, [fromId]: true }));
-    setError(`Alliance request from ${fromId}. Use Diplomacy in Commanders to accept.`);
+    // Show popup - name will be resolved from state when rendering
+    setAlliancePopup({ fromId, fromName: fromId });
+  }, []);
+
+  const handleAllianceRetracted = useCallback((fromId: string) => {
+    // Remove the incoming offer and dismiss popup if it's from this player
+    setPendingAllianceFromIds((current) => {
+      if (!current[fromId]) return current;
+      const next = { ...current };
+      delete next[fromId];
+      return next;
+    });
+    setAlliancePopup((current) => (current?.fromId === fromId ? null : current));
+  }, []);
+
+  const handleAllianceDeclined = useCallback((byId: string) => {
+    // Remove the pending outgoing offer and mark as declined
+    setPendingAllianceToIds((current) => {
+      if (!current[byId]) return current;
+      const next = { ...current };
+      delete next[byId];
+      return next;
+    });
+    setDeclinedAllianceByIds((current) => ({ ...current, [byId]: true }));
   }, []);
 
   const handleRematchCreated = useCallback((gameId: string, creatorName: string) => {
@@ -201,9 +231,11 @@ function App() {
       onGameState: handleGameState,
       onGamesList: handleGamesList,
       onAllianceRequest: handleAllianceRequest,
+      onAllianceRetracted: handleAllianceRetracted,
+      onAllianceDeclined: handleAllianceDeclined,
       onRematchCreated: handleRematchCreated,
     }),
-    [handleAllianceRequest, handleGameState, handleGamesList, handleRematchCreated]
+    [handleAllianceDeclined, handleAllianceRequest, handleAllianceRetracted, handleGameState, handleGamesList, handleRematchCreated]
   );
 
   const {
@@ -218,6 +250,8 @@ function App() {
     lockIn,
     requestAlliance,
     acceptAlliance,
+    retractAlliance,
+    declineAlliance,
     startGameEarly,
   } = useGameSocket(SERVER_URL, DEMO_MODE, socketCallbacks);
 
@@ -393,6 +427,10 @@ function App() {
     setEndgameDismissed(false);
     setSelectedId(null);
     setRematchInfo(null);
+    setPendingAllianceFromIds({});
+    setPendingAllianceToIds({});
+    setDeclinedAllianceByIds({});
+    setAlliancePopup(null);
   }, [gameId]);
 
   // Set default join color when prompt opens or available colors change
@@ -737,7 +775,7 @@ function App() {
 
   const powerupHighlightColor = useMemo(() => {
     if (!powerupDraft) return "";
-    if (powerupDraft === "stellarBomb") return "var(--danger)";
+    if (powerupDraft === "stellarBomb") return RESOURCE_COLORS.metal;
     const resource = POWERUPS[powerupDraft]?.resource;
     return resource ? RESOURCE_COLORS[resource] : "";
   }, [powerupDraft]);
@@ -912,11 +950,22 @@ function App() {
     });
   };
 
-  const handleAlliance = (targetId) => {
+  const handleAlliance = (targetId: string) => {
     requestAlliance({ targetId });
+    setPendingAllianceToIds((current) => ({ ...current, [targetId]: true }));
   };
 
-  const handleAcceptAlliance = (targetId) => {
+  const handleRetractAlliance = (targetId: string) => {
+    retractAlliance({ targetId });
+    setPendingAllianceToIds((current) => {
+      if (!current[targetId]) return current;
+      const next = { ...current };
+      delete next[targetId];
+      return next;
+    });
+  };
+
+  const handleAcceptAlliance = (targetId: string) => {
     acceptAlliance({ fromId: targetId });
     setPendingAllianceFromIds((current) => {
       if (!current[targetId]) return current;
@@ -924,6 +973,22 @@ function App() {
       delete next[targetId];
       return next;
     });
+    if (alliancePopup?.fromId === targetId) {
+      setAlliancePopup(null);
+    }
+  };
+
+  const handleDeclineAlliance = (fromId: string) => {
+    declineAlliance({ fromId });
+    setPendingAllianceFromIds((current) => {
+      if (!current[fromId]) return current;
+      const next = { ...current };
+      delete next[fromId];
+      return next;
+    });
+    if (alliancePopup?.fromId === fromId) {
+      setAlliancePopup(null);
+    }
   };
 
   const handleLeaveGame = () => {
@@ -1223,6 +1288,19 @@ function App() {
               : `Placing ${POWERUPS[powerupDraft]?.label || powerupDraft}: click a highlighted system (Esc to cancel).`}
           </div>
         ) : null}
+        {alliancePopup ? (
+          <div className="alliance-popup">
+            <span className="alliance-popup-text">
+              {state?.players?.[alliancePopup.fromId]?.name || alliancePopup.fromId} requests an alliance
+            </span>
+            <button type="button" className="alliance-popup-accept" onClick={() => handleAcceptAlliance(alliancePopup.fromId)}>
+              Accept
+            </button>
+            <button type="button" className="alliance-popup-decline" onClick={() => handleDeclineAlliance(alliancePopup.fromId)}>
+              Decline
+            </button>
+          </div>
+        ) : null}
       </div>
 
       {isComplete && !endgameDismissed ? (
@@ -1399,6 +1477,24 @@ function App() {
                         disabled: false,
                         title: "Accept alliance (lasts 3 turns).",
                         onClick: () => handleAcceptAlliance(player.id),
+                      };
+                    }
+
+                    if (pendingAllianceToIds[player.id]) {
+                      return {
+                        label: "Retract",
+                        disabled: false,
+                        title: "Retract alliance offer.",
+                        onClick: () => handleRetractAlliance(player.id),
+                      };
+                    }
+
+                    if (declinedAllianceByIds[player.id]) {
+                      return {
+                        label: "Declined",
+                        disabled: true,
+                        title: "Alliance declined (resets next turn).",
+                        onClick: () => {},
                       };
                     }
 

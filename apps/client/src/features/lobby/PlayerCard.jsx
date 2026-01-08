@@ -17,7 +17,7 @@ export default function PlayerCard({ player, highlight, diplomacy }) {
         {diplomacy ? (
           <button
             type="button"
-            className="player-diplomacy"
+            className={`player-diplomacy${diplomacy.label === "Accept" ? " player-diplomacy-accept" : ""}${diplomacy.label === "Retract" ? " player-diplomacy-retract" : ""}${diplomacy.label === "Declined" ? " player-diplomacy-declined" : ""}`}
             onClick={diplomacy.onClick}
             disabled={diplomacy.disabled}
             title={diplomacy.title}

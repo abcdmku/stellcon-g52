@@ -64,6 +64,37 @@ export function registerSocketHandlers(io: IO, store: GameStore) {
     io.emit("gamesList", listPublicGames(store));
   };
 
+  const clearPendingAlliancesForGame = (gameId: string) => {
+    // Collect all pending alliance keys for this game
+    const keysToDelete: string[] = [];
+    const notifications: { targetId: string; fromId: string }[] = [];
+
+    for (const key of store.pendingAlliances.keys()) {
+      if (key.startsWith(`${gameId}:`)) {
+        keysToDelete.push(key);
+        // Extract fromId and targetId from key format: gameId:fromId:targetId
+        const parts = key.split(":");
+        if (parts.length === 3) {
+          notifications.push({ fromId: parts[1], targetId: parts[2] });
+        }
+      }
+    }
+
+    // Delete all pending alliances for this game
+    for (const key of keysToDelete) {
+      store.pendingAlliances.delete(key);
+    }
+
+    // Notify target players that offers expired
+    for (const { fromId, targetId } of notifications) {
+      for (const [socketId, session] of getSocketsForGame(store, gameId)) {
+        if (session.playerId === targetId) {
+          io.to(socketId).emit("allianceRetracted", { fromId });
+        }
+      }
+    }
+  };
+
   const scheduleFinalize = (game: GameState) => {
     if (store.resolveTimers.has(game.id)) {
       clearTimeout(store.resolveTimers.get(game.id));
@@ -78,6 +109,7 @@ export function registerSocketHandlers(io: IO, store: GameStore) {
       try {
         store.resolveTimers.delete(game.id);
         finalizeResolution(game);
+        clearPendingAlliancesForGame(game.id);
         emitState(game.id);
         emitGamesList();
       } catch (error) {
@@ -327,6 +359,52 @@ export function registerSocketHandlers(io: IO, store: GameStore) {
           store.pendingAlliances.delete(key);
           setAlliance(game, fromId, session.playerId);
           emitState(game.id);
+        }
+        callback?.({ ok: true });
+      } catch (error) {
+        callback?.({ error: error instanceof Error ? error.message : String(error) });
+      }
+    });
+
+    socket.on("retractAlliance", (payload, callback) => {
+      try {
+        const { targetId } = payload;
+        const session = getSession(store, socket.id);
+        if (!session) throw new Error("Not in game");
+        if (!session.playerId) throw new Error("Spectators cannot retract alliances");
+        const game = ensureGame(store, session.gameId);
+        const key = `${session.gameId}:${session.playerId}:${targetId}`;
+        if (store.pendingAlliances.has(key)) {
+          store.pendingAlliances.delete(key);
+          // Notify the target player that the offer was retracted
+          for (const [socketId, playerSession] of getSocketsForGame(store, game.id)) {
+            if (playerSession.playerId === targetId) {
+              io.to(socketId).emit("allianceRetracted", { fromId: session.playerId });
+            }
+          }
+        }
+        callback?.({ ok: true });
+      } catch (error) {
+        callback?.({ error: error instanceof Error ? error.message : String(error) });
+      }
+    });
+
+    socket.on("declineAlliance", (payload, callback) => {
+      try {
+        const { fromId } = payload;
+        const session = getSession(store, socket.id);
+        if (!session) throw new Error("Not in game");
+        if (!session.playerId) throw new Error("Spectators cannot decline alliances");
+        const game = ensureGame(store, session.gameId);
+        const key = `${session.gameId}:${fromId}:${session.playerId}`;
+        if (store.pendingAlliances.has(key)) {
+          store.pendingAlliances.delete(key);
+          // Notify the requester that their offer was declined
+          for (const [socketId, playerSession] of getSocketsForGame(store, game.id)) {
+            if (playerSession.playerId === fromId) {
+              io.to(socketId).emit("allianceDeclined", { byId: session.playerId });
+            }
+          }
         }
         callback?.({ ok: true });
       } catch (error) {
