@@ -116,6 +116,8 @@ const Board = memo(function Board({
   const pointerIdRef = useRef(null);
   const redrawTimeoutRef = useRef<number | null>(null);
   const rasterBustRef = useRef(false);
+  const hoverRafRef = useRef<number>(0);
+  const pendingHoverRef = useRef<{ x: number; y: number } | null>(null);
 
   const bustHexRasterization = useCallback(() => {
     const canvas = canvasRef.current;
@@ -156,6 +158,10 @@ const Board = memo(function Board({
       if (panRaf.current) {
         cancelAnimationFrame(panRaf.current);
         panRaf.current = 0;
+      }
+      if (hoverRafRef.current) {
+        cancelAnimationFrame(hoverRafRef.current);
+        hoverRafRef.current = 0;
       }
     };
   }, []);
@@ -217,6 +223,41 @@ const Board = memo(function Board({
     for (const system of systems) entries[system.id] = system;
     return entries;
   }, [systems]);
+
+  // Viewport virtualization - only render systems visible in current view
+  const [viewportSize, setViewportSize] = useState({ width: 2000, height: 1500 });
+  useEffect(() => {
+    const updateSize = () => {
+      const board = boardRef.current;
+      if (board) {
+        const rect = board.getBoundingClientRect();
+        setViewportSize({ width: rect.width, height: rect.height });
+      }
+    };
+    updateSize();
+    window.addEventListener("resize", updateSize);
+    return () => window.removeEventListener("resize", updateSize);
+  }, []);
+
+  const visibleSystems = useMemo(() => {
+    // Add generous padding to avoid pop-in during panning
+    const padding = HEX_SIZE * 2;
+    const halfWidth = (viewportSize.width / 2 / scale) + padding;
+    const halfHeight = (viewportSize.height / 2 / scale) + padding;
+    const centerX = -offset.x / scale;
+    const centerY = -offset.y / scale;
+
+    return systems.filter((system) => {
+      const pos = positions[system.id];
+      if (!pos) return false;
+      return (
+        pos.x >= centerX - halfWidth &&
+        pos.x <= centerX + halfWidth &&
+        pos.y >= centerY - halfHeight &&
+        pos.y <= centerY + halfHeight
+      );
+    });
+  }, [systems, positions, offset, scale, viewportSize]);
 
   const queuedPowerupsBySystemId = useMemo(() => {
     const map = new Map<string, PowerupKey[]>();
@@ -611,6 +652,9 @@ const Board = memo(function Board({
     if (!resolutionStartedAt || !resolutionEndsAt) return [];
     if (!revealedMoves || revealedMoves.length === 0) return [];
 
+    // Limit total particles to prevent DOM overload
+    const MAX_PARTICLES = 40;
+
     const transfers = [];
     const attackGroups = new Map();
     for (const [moveIndex, move] of revealedMoves.entries()) {
@@ -627,7 +671,7 @@ const Board = memo(function Board({
       if (!isAttack) {
         const color = players?.[playerId]?.color || "#ffffff";
         const size = Math.min(18, 8 + Math.sqrt(count) * 1.6);
-        transfers.push({ key: `t-${playerId}-${move.fromId}-${move.toId}-${moveIndex}`, from, to, color, size });
+        transfers.push({ key: `t-${playerId}-${move.fromId}-${move.toId}-${moveIndex}`, from, to, color, size, count });
         continue;
       }
 
@@ -651,11 +695,17 @@ const Board = memo(function Board({
 
     const result = [];
     let index = 0;
+
+    // Sort transfers by fleet count (descending) to prioritize larger moves
+    transfers.sort((a, b) => b.count - a.count);
+
     for (const entry of transfers) {
+      if (result.length >= MAX_PARTICLES) break;
       result.push({ index, ...entry });
       index += 1;
     }
     for (const group of attackGroups.values()) {
+      if (result.length >= MAX_PARTICLES) break;
       const to = positions[group.toId];
       if (!to || group.totalFleets <= 0 || group.weight <= 0) continue;
       const from = { x: group.sumX / group.weight, y: group.sumY / group.weight };
@@ -681,9 +731,10 @@ const Board = memo(function Board({
   const [combatNow, setCombatNow] = useState(Date.now());
   useEffect(() => {
     if (phase !== "resolving" || !resolutionStartedAt || !resolutionBattles?.length) return;
+    // Update combat state every 500ms (battles animate at 1000ms per round)
     const interval = setInterval(() => {
       setCombatNow(Date.now());
-    }, 250);
+    }, 500);
     return () => clearInterval(interval);
   }, [phase, resolutionBattles, resolutionStartedAt]);
 
@@ -833,31 +884,44 @@ const Board = memo(function Board({
 
     if (phase !== "planning") return;
     if (event.target?.closest?.(".planned-move-controls")) return;
+
+    // Throttle hover detection using requestAnimationFrame
     const rect = event.currentTarget.getBoundingClientRect();
     const centerX = rect.left + rect.width / 2;
     const centerY = rect.top + rect.height / 2;
     const x = (event.clientX - centerX - offset.x) / scale;
     const y = (event.clientY - centerY - offset.y) / scale;
 
-    let best = { index: null, dist2: Number.POSITIVE_INFINITY };
-    for (const path of plannedPathsRef.current || []) {
-      const p0 = path.from;
-      const p1 = { x: path.cx, y: path.cy };
-      const p2 = path.to;
-      const sampleTs = [0.18, 0.34, 0.5, 0.66, 0.82];
-      for (const t of sampleTs) {
-        const a = 1 - t;
-        const px = a * a * p0.x + 2 * a * t * p1.x + t * t * p2.x;
-        const py = a * a * p0.y + 2 * a * t * p1.y + t * t * p2.y;
-        const dx = px - x;
-        const dy = py - y;
-        const dist2 = dx * dx + dy * dy;
-        if (dist2 < best.dist2) best = { index: path.index, dist2 };
-      }
-    }
+    pendingHoverRef.current = { x, y };
 
-    const threshold2 = 18 * 18;
-    setHoveredMoveIndex(best.dist2 <= threshold2 ? best.index : null);
+    if (hoverRafRef.current) return; // Already scheduled
+
+    hoverRafRef.current = requestAnimationFrame(() => {
+      hoverRafRef.current = 0;
+      const pending = pendingHoverRef.current;
+      if (!pending) return;
+
+      let best = { index: null, dist2: Number.POSITIVE_INFINITY };
+      for (const path of plannedPathsRef.current || []) {
+        const p0 = path.from;
+        const p1 = { x: path.cx, y: path.cy };
+        const p2 = path.to;
+        // Reduced from 5 samples to 3 for better performance
+        const sampleTs = [0.25, 0.5, 0.75];
+        for (const t of sampleTs) {
+          const a = 1 - t;
+          const px = a * a * p0.x + 2 * a * t * p1.x + t * t * p2.x;
+          const py = a * a * p0.y + 2 * a * t * p1.y + t * t * p2.y;
+          const dx = px - pending.x;
+          const dy = py - pending.y;
+          const dist2 = dx * dx + dy * dy;
+          if (dist2 < best.dist2) best = { index: path.index, dist2 };
+        }
+      }
+
+      const threshold2 = 18 * 18;
+      setHoveredMoveIndex(best.dist2 <= threshold2 ? best.index : null);
+    });
   };
 
   const handlePointerUp = (event) => {
@@ -1037,7 +1101,7 @@ const Board = memo(function Board({
               );
             })
           : null}
-        {systems.map((system) => {
+        {visibleSystems.map((system) => {
           const position = positions[system.id];
           const battle = phase === "resolving" ? battleByTargetId.get(system.id) : null;
           const elapsed = resolutionStartedAt ? combatNow - resolutionStartedAt : 0;

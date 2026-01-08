@@ -30,17 +30,15 @@ function GameStars() {
       fpsLimit: reducedMotion ? 30 : 60,
       detectRetina: true,
       particles: {
-        number: { value: 60, density: { enable: true, area: 1000 } },
+        // Reduced from 60 to 25 for better performance during gameplay
+        number: { value: 25, density: { enable: true, area: 1200 } },
         color: { value: ["#ffffff", "#74f2ff", "#6cf7b2"] },
         shape: { type: "circle" },
         opacity: { value: { min: 0.15, max: 0.5 } },
         size: { value: { min: 0.4, max: 1.4 } },
         links: {
-          enable: true,
-          distance: 150,
-          color: "#74f2ff",
-          opacity: 0.08,
-          width: 1,
+          // Disabled links during gameplay - O(n²) calculation is expensive
+          enable: false,
         },
         move: {
           enable: !reducedMotion,

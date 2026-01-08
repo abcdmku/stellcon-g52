@@ -695,22 +695,35 @@ function App() {
     return [...active, ...queued];
   }, [orders.powerups, state?.wormholes]);
 
-  const canAttackFromOwned = useCallback((targetId) => {
-    if (!playerId) return false;
+  // Pre-compute all attackable target IDs to avoid O(n²) in powerupTargetIds
+  const attackableTargetIds = useMemo(() => {
+    if (!playerId) return new Set<string>();
+    const targets = new Set<string>();
+    const systemMap = new Map(systems.map((system) => [system.id, system]));
+
+    // Add all neighbors of owned systems
     for (const system of systems) {
       if (system.ownerId !== playerId) continue;
-      if (links?.[system.id]?.includes(targetId)) return true;
+      for (const neighborId of links?.[system.id] || []) {
+        targets.add(neighborId);
+      }
     }
-    const systemMap = new Map(systems.map((system) => [system.id, system]));
+
+    // Add wormhole destinations from owned systems
     for (const wormhole of plannedWormholes) {
       if ((wormhole.turnsRemaining || 0) <= 0) continue;
       const from = systemMap.get(wormhole.fromId);
       const to = systemMap.get(wormhole.toId);
-      if (from?.ownerId === playerId && wormhole.toId === targetId) return true;
-      if (to?.ownerId === playerId && wormhole.fromId === targetId) return true;
+      if (from?.ownerId === playerId) targets.add(wormhole.toId);
+      if (to?.ownerId === playerId) targets.add(wormhole.fromId);
     }
-    return false;
+
+    return targets;
   }, [links, plannedWormholes, playerId, systems]);
+
+  const canAttackFromOwned = useCallback((targetId: string) => {
+    return attackableTargetIds.has(targetId);
+  }, [attackableTargetIds]);
 
   const canTravelViaWormhole = useCallback(
     (fromId: string, toId: string) =>

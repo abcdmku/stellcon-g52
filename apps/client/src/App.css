@@ -1325,7 +1325,10 @@ button:disabled {
 
 .hex-value {
   position: relative;
-  font-size: 24px;
+  font-size: clamp(28px, 3vw, 34px);
+  font-weight: 400;
+  letter-spacing: 0.02em;
+  line-height: 1;
   z-index: 6;
   text-shadow: 0 6px 12px rgba(0, 0, 0, 0.4);
   user-select: none;
@@ -3206,5 +3209,49 @@ button:disabled {
   .top-actions {
     width: 100%;
     justify-content: space-between;
+  }
+}
+
+/* Reduced motion preferences - disable animations for accessibility */
+@media (prefers-reduced-motion: reduce) {
+  .move-path-pulse,
+  .wormhole-line-pulse {
+    animation: none;
+  }
+
+  .move-particle {
+    animation: none;
+    opacity: 0;
+  }
+
+  .defense-net-active .hex-border {
+    animation: none;
+  }
+
+  .hex.origin::before {
+    animation: none;
+  }
+
+  .combat-burst,
+  .combat-spark,
+  .combat-victory {
+    animation: none;
+  }
+
+  .hex-fx-item {
+    animation: none;
+  }
+
+  .stellar-bomb-flash {
+    animation: none;
+  }
+
+  .waiting-pulse {
+    animation: none;
+  }
+
+  .game-stars,
+  .lobby-stars {
+    display: none;
   }
 }
