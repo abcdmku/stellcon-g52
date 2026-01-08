@@ -1,0 +1,45 @@
+# Dependencies
+node_modules
+**/node_modules
+
+# Build outputs
+**/dist
+**/build
+
+# Development files
+.git
+.gitignore
+.claude
+*.md
+README*
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# Test files
+**/*.test.*
+**/*.spec.*
+**/coverage
+
+# Screenshots and images (development only)
+screenshot.png
+screenshot.js
+game.PNG
+tools/
+
+# Environment files
+.env
+.env.*
+!.env.example
