@@ -73,29 +73,27 @@ function rollTotalResources(
 
 export function rollResourcesForTier(tier: number, rand: Rand): ResourceMap {
   const clampedTier = Math.max(0, Math.min(3, Math.floor(tier)));
-  const ceveronByTier = [0, 1, 2, 3];
   const ranges = [
     { minTotal: 1, maxTotal: 3 }, // tier 0
     { minTotal: 3, maxTotal: 5 }, // tier 1
     { minTotal: 5, maxTotal: 8 }, // tier 2
-    { minTotal: 8, maxTotal: 12 }, // tier 3 (homeworlds only)
+    { minTotal: 12, maxTotal: 12 }, // tier 3 (homeworlds only)
   ];
 
   if (clampedTier === 3) {
     const resources = {} as ResourceMap;
     for (const key of RESOURCE_TYPES) resources[key] = 0;
-    resources.ceveron = ceveronByTier[clampedTier];
 
     const { minTotal, maxTotal } = ranges[clampedTier];
-    const total = Math.max(
-      CORE_RESOURCE_TYPES.length,
-      minTotal + Math.floor(rand() * (maxTotal - minTotal + 1))
-    );
+    const total = Math.max(CORE_RESOURCE_TYPES.length * 2, minTotal + Math.floor(rand() * (maxTotal - minTotal + 1)));
 
-    for (const key of CORE_RESOURCE_TYPES) resources[key] = 1;
-    let remaining = total - CORE_RESOURCE_TYPES.length;
+    for (const key of CORE_RESOURCE_TYPES) resources[key] = 2;
+    const locked = CORE_RESOURCE_TYPES[Math.floor(rand() * CORE_RESOURCE_TYPES.length)];
+    const eligible = CORE_RESOURCE_TYPES.filter((key) => key !== locked);
+
+    let remaining = total - CORE_RESOURCE_TYPES.length * 2;
     while (remaining > 0) {
-      const key = CORE_RESOURCE_TYPES[Math.floor(rand() * CORE_RESOURCE_TYPES.length)];
+      const key = eligible[Math.floor(rand() * eligible.length)];
       resources[key] += 1;
       remaining -= 1;
     }
@@ -103,8 +101,19 @@ export function rollResourcesForTier(tier: number, rand: Rand): ResourceMap {
   }
 
   const resources = rollTotalResources(rand, CORE_RESOURCE_TYPES, ranges[clampedTier]);
-  resources.ceveron = ceveronByTier[clampedTier];
   return resources;
+}
+
+function rollFleetsForTier(tier: number, rand: Rand) {
+  const clampedTier = Math.max(0, Math.min(3, Math.floor(tier)));
+  const fleetRanges = [
+    { min: 0, max: 2 }, // tier 0
+    { min: 3, max: 5 }, // tier 1
+    { min: 4, max: 8 }, // tier 2
+    { min: 0, max: 0 }, // tier 3 (homeworld fleets are set when the game starts)
+  ];
+  const range = fleetRanges[clampedTier];
+  return range.min + Math.floor(rand() * (range.max - range.min + 1));
 }
 
 function isInteriorCoord(coord: Coord, valid: Set<string>) {
@@ -303,15 +312,7 @@ export function generateGalaxy({
     }
 
     const resources = rollResourcesForTier(tier, rand);
-
-    const fleetRanges = [
-      { min: 0, max: 2 }, // tier 0
-      { min: 1, max: 3 }, // tier 1
-      { min: 2, max: 5 }, // tier 2
-      { min: 0, max: 0 }, // tier 3 (homeworld fleets are set when the game starts)
-    ];
-    const fleetRange = fleetRanges[Math.max(0, Math.min(fleetRanges.length - 1, tier))];
-    const fleets = fleetRange.min + Math.floor(rand() * (fleetRange.max - fleetRange.min + 1));
+    const fleets = rollFleetsForTier(tier, rand);
 
     return {
       id: systemId(q, r),
@@ -343,6 +344,28 @@ export function generateGalaxy({
     acc[system.id] = system;
     return acc;
   }, {} as SystemMap);
+
+  const desiredTier2Count = Math.max(0, homeworldCount);
+  const currentTier2Count = systems.reduce((count, system) => count + ((system.tier ?? 0) === 2 ? 1 : 0), 0);
+  const tier2Missing = desiredTier2Count - currentTier2Count;
+  if (tier2Missing > 0) {
+    const eligible = systems.filter((system) => {
+      const key = coordKey(system.q, system.r);
+      if ((system.tier ?? 0) >= 2) return false;
+      if (homeCoordKeys.has(key)) return false;
+      if (homePerimeterCoordKeys.has(key)) return false;
+      return true;
+    });
+
+    for (let i = 0; i < tier2Missing && eligible.length > 0; i += 1) {
+      const index = Math.floor(rand() * eligible.length);
+      const promoted = eligible[index];
+      eligible.splice(index, 1);
+      promoted.tier = 2;
+      promoted.resources = rollResourcesForTier(2, rand);
+      promoted.fleets = rollFleetsForTier(2, rand);
+    }
+  }
 
   const components = connectedComponents(systemMap, links);
   if (components.length > 1) {

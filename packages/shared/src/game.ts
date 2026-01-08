@@ -15,6 +15,7 @@ import type {
   GameConfig,
   GameState,
   Orders,
+  PowerupOrder,
   PlayerPowerups,
   PlayerState,
   ResourceMap,
@@ -34,24 +35,6 @@ function now() {
   return Date.now();
 }
 
-function ceveronForTier(tier: number) {
-  const clampedTier = Math.max(0, Math.min(3, Math.floor(tier ?? 0)));
-  return clampedTier;
-}
-
-export function normalizeCeveron(game: GameState) {
-  for (const system of game.systems) {
-    system.resources ||= initResources(0);
-    system.resources.ceveron = ceveronForTier(system.tier ?? 0);
-  }
-
-  if (game.phase === PHASES.planning) {
-    for (const player of Object.values(game.players)) {
-      const income = computeIncome(game, player.id);
-      player.income = income.totals;
-    }
-  }
-}
 
 export function createGame(
   { id, config = {}, seed = "stellcon" }: { id?: string; config?: Partial<GameConfig>; seed?: string } = {}
@@ -74,6 +57,7 @@ export function createGame(
     turnEndsAt: null,
     systems,
     links,
+    wormholes: [],
     players: {} as Record<string, PlayerState>,
     log: [] as unknown[],
     winnerId: null,
@@ -182,7 +166,6 @@ export function addPlayer(
     research: initResources(0),
     powerups,
     fleetsToPlace: 0,
-    wormholeTurns: 0,
     alliances: {},
     connected: true,
     locked: false,
@@ -240,18 +223,16 @@ export function initResources(value: number): ResourceMap {
 
 export function computeIncome(game: GameState, playerId: string): { totals: ResourceMap; fleets: number; surplus: ResourceMap } {
   const totals = initResources(0);
-  let fleets = 0;
   for (const system of game.systems) {
     if (system.ownerId !== playerId) continue;
     for (const key of RESOURCE_TYPES) {
       totals[key] += system.resources[key];
     }
-    fleets += Math.min(...CORE_RESOURCE_TYPES.map((key) => system.resources[key] || 0));
   }
   const min = Math.min(...CORE_RESOURCE_TYPES.map((key) => totals[key]));
+  const fleets = min;
   const surplus = initResources(0);
   for (const key of CORE_RESOURCE_TYPES) surplus[key] = Math.max(0, totals[key] - min);
-  surplus.ceveron = totals.ceveron;
   return { totals, fleets, surplus };
 }
 
@@ -274,7 +255,6 @@ export function submitOrders(game: GameState, playerId: string, orders: Partial<
   const player = game.players[playerId];
   if (!player) return;
   if (game.phase !== PHASES.planning) return;
-  if (player.locked) return;
 
   const placements =
     orders && typeof orders.placements === "object" && orders.placements !== null && !Array.isArray(orders.placements)
@@ -290,6 +270,11 @@ export function submitOrders(game: GameState, playerId: string, orders: Partial<
     powerups,
     research,
   };
+
+  // Unlock player when they modify their orders
+  if (player.locked) {
+    player.locked = false;
+  }
 }
 
 export function lockIn(game: GameState, playerId: string) {
@@ -466,6 +451,15 @@ function planResolution(game: GameState, rand: Rand) {
     return false;
   };
 
+  const hasActiveWormholeConnection = (fromId: string, toId: string) => {
+    const wormholes = Array.isArray(game.wormholes) ? game.wormholes : [];
+    return wormholes.some(
+      (wormhole) =>
+        (wormhole.turnsRemaining || 0) > 0 &&
+        ((wormhole.fromId === fromId && wormhole.toId === toId) || (wormhole.fromId === toId && wormhole.toId === fromId))
+    );
+  };
+
   for (const player of Object.values(game.players)) {
     const moves = player.orders.moves || [];
     for (const move of moves) {
@@ -478,7 +472,8 @@ function planResolution(game: GameState, rand: Rand) {
       const isFriendlyTransfer = to.ownerId === player.id;
       const isNeighbor = game.links[from.id]?.includes(to.id);
       const canOwnedPath = isFriendlyTransfer && canMoveWithinOwned(from.id, to.id, player.id);
-      if (!isNeighbor && player.wormholeTurns <= 0 && !canOwnedPath) continue;
+      const canWormhole = hasActiveWormholeConnection(from.id, to.id);
+      if (!isNeighbor && !canWormhole && !canOwnedPath) continue;
       if (to.ownerId && to.ownerId !== player.id && to.defenseNetTurns > 0) continue;
 
       const amount = clamp(Number(move.count) || 0, 0, from.fleets);
@@ -488,8 +483,6 @@ function planResolution(game: GameState, rand: Rand) {
       if (from.fleets === 0 && from.ownerId) {
         from.ownerId = null;
         from.defenseNetTurns = 0;
-        const simPlayer = playerMap.get(player.id);
-        if (simPlayer && simPlayer.wormholeTurns > 0) simPlayer.wormholeTurns = 0;
       }
 
       if (to.ownerId === player.id) {
@@ -620,13 +613,21 @@ function applyPlacements(game: GameState) {
 function applyPowerups(game: GameState, rand: Rand) {
   const players = Object.values(game.players);
   const actionsByPlayer = new Map(players.map((player) => [player.id, player.orders.powerups || []]));
+  const systemById = new Map(game.systems.map((system) => [system.id, system]));
+  game.wormholes ||= [];
 
   const canAttackFromOwned = (player: PlayerState | undefined, target: SystemState | undefined) => {
     if (!player || !target) return false;
-    if ((player.wormholeTurns || 0) > 0) return true;
     for (const system of game.systems) {
       if (system.ownerId !== player.id) continue;
       if ((game.links[system.id] || []).includes(target.id)) return true;
+    }
+    for (const wormhole of game.wormholes || []) {
+      if ((wormhole.turnsRemaining || 0) <= 0) continue;
+      const from = systemById.get(wormhole.fromId);
+      const to = systemById.get(wormhole.toId);
+      if (from?.ownerId === player.id && wormhole.toId === target.id) return true;
+      if (to?.ownerId === player.id && wormhole.fromId === target.id) return true;
     }
     return false;
   };
@@ -642,16 +643,19 @@ function applyPowerups(game: GameState, rand: Rand) {
     return true;
   };
 
-  const getTarget = (action) => game.systems.find((system) => system.id === action.targetId);
+  const getTarget = (action: PowerupOrder) => {
+    if (!("targetId" in action)) return null;
+    return systemById.get(action.targetId) || null;
+  };
 
   const applySupportPowerups = (player, action) => {
     const powerup = POWERUPS[action.type];
     if (!powerup) return;
     if (!canSpend(player, powerup)) return;
-    const target = getTarget(action);
-    if (!target) return;
 
     if (action.type === "terraform") {
+      const target = getTarget(action);
+      if (!target) return;
       const tier = target.tier ?? 0;
       if (target.ownerId === player.id && !target.terraformed && tier <= 1) {
         const nextTier = Math.min(2, tier + 1);
@@ -664,6 +668,8 @@ function applyPowerups(game: GameState, rand: Rand) {
     }
 
     if (action.type === "defenseNet") {
+      const target = getTarget(action);
+      if (!target) return;
       if (target.ownerId === player.id) {
         target.defenseNetTurns = powerup.duration;
         spend(player, powerup);
@@ -672,10 +678,22 @@ function applyPowerups(game: GameState, rand: Rand) {
     }
 
     if (action.type === "wormhole") {
-      if (target.ownerId === player.id) {
-        player.wormholeTurns = powerup.duration;
-        spend(player, powerup);
-      }
+      const from = systemById.get(action.fromId);
+      const to = systemById.get(action.toId);
+      if (!from || !to) return;
+      if (from.id === to.id) return;
+      if (from.ownerId !== player.id) return;
+      if (!spend(player, powerup)) return;
+      const wormholes = Array.isArray(game.wormholes) ? game.wormholes : [];
+      game.wormholes = wormholes
+        .filter(
+          (wormhole) =>
+            !(
+              (wormhole.fromId === from.id && wormhole.toId === to.id) ||
+              (wormhole.fromId === to.id && wormhole.toId === from.id)
+            )
+        )
+        .concat([{ fromId: from.id, toId: to.id, turnsRemaining: powerup.duration }]);
     }
   };
 
@@ -732,6 +750,14 @@ function resolveMovements(game: GameState, rand: Rand) {
     }
     return false;
   };
+  const hasActiveWormholeConnection = (fromId: string, toId: string) => {
+    const wormholes = Array.isArray(game.wormholes) ? game.wormholes : [];
+    return wormholes.some(
+      (wormhole) =>
+        (wormhole.turnsRemaining || 0) > 0 &&
+        ((wormhole.fromId === fromId && wormhole.toId === toId) || (wormhole.fromId === toId && wormhole.toId === fromId))
+    );
+  };
   const incoming = new Map();
 
   for (const player of Object.values(game.players)) {
@@ -746,7 +772,8 @@ function resolveMovements(game: GameState, rand: Rand) {
       const isFriendlyTransfer = to.ownerId === player.id;
       const isNeighbor = game.links[from.id]?.includes(to.id);
       const canOwnedPath = isFriendlyTransfer && canMoveWithinOwned(from.id, to.id, player.id);
-      if (!isNeighbor && player.wormholeTurns <= 0 && !canOwnedPath) continue;
+      const canWormhole = hasActiveWormholeConnection(from.id, to.id);
+      if (!isNeighbor && !canWormhole && !canOwnedPath) continue;
 
       if (to.ownerId && to.ownerId !== player.id && to.defenseNetTurns > 0) continue;
 
@@ -820,10 +847,13 @@ function tickDurations(game: GameState) {
     }
   }
 
+  if (Array.isArray(game.wormholes) && game.wormholes.length) {
+    game.wormholes = game.wormholes
+      .map((wormhole) => ({ ...wormhole, turnsRemaining: Math.max(0, (wormhole.turnsRemaining || 0) - 1) }))
+      .filter((wormhole) => wormhole.turnsRemaining > 0);
+  }
+
   for (const player of Object.values(game.players)) {
-    if (player.wormholeTurns > 0) {
-      player.wormholeTurns -= 1;
-    }
     for (const [allyId, turns] of Object.entries(player.alliances)) {
       if (turns <= 1) {
         delete player.alliances[allyId];
@@ -848,19 +878,41 @@ function checkVictory(game: GameState) {
   }
 }
 
-function determineLeader(game: GameState) {
-  const scores = new Map();
-  for (const system of game.systems) {
-    if (!system.ownerId) continue;
-    scores.set(system.ownerId, (scores.get(system.ownerId) || 0) + 1);
+function determineLeader(game: GameState): string | null {
+  // Calculate fleet production for each player
+  const stats = new Map<string, { systems: number; fleets: number }>();
+  for (const playerId of Object.keys(game.players)) {
+    const income = computeIncome(game, playerId);
+    const systemCount = game.systems.filter((s) => s.ownerId === playerId).length;
+    stats.set(playerId, { systems: systemCount, fleets: income.fleets });
   }
-  let best = null;
-  for (const [playerId, count] of scores.entries()) {
-    if (!best || count > best.count) {
-      best = { playerId, count };
+
+  // Find best by fleet production, then by system count as tiebreaker
+  let best: { playerId: string; fleets: number; systems: number } | null = null;
+  let isTie = false;
+
+  for (const [playerId, { systems, fleets }] of stats.entries()) {
+    if (!best) {
+      best = { playerId, fleets, systems };
+      continue;
+    }
+    if (fleets > best.fleets) {
+      best = { playerId, fleets, systems };
+      isTie = false;
+    } else if (fleets === best.fleets) {
+      // Same fleet production - check systems as secondary
+      if (systems > best.systems) {
+        best = { playerId, fleets, systems };
+        isTie = false;
+      } else if (systems === best.systems) {
+        // Both fleet production and systems are equal - it's a tie
+        isTie = true;
+      }
     }
   }
-  return best ? best.playerId : null;
+
+  // Return null for a tie, otherwise return the winner
+  return isTie ? null : (best?.playerId ?? null);
 }
 
 export function setAlliance(game: GameState, fromId: string, toId: string) {
@@ -901,6 +953,7 @@ export function redactGameState(game: GameState, viewerId: string | null): GameS
     turnEndsAt: game.turnEndsAt,
     systems: game.systems,
     links: game.links,
+    wormholes: game.wormholes,
     players,
     log: game.log,
     winnerId: game.winnerId,

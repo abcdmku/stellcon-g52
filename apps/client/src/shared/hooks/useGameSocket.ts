@@ -23,6 +23,7 @@ type SocketCallbacks = {
   onGameState: (state: GameState) => void;
   onGamesList: (games: GameListItem[]) => void;
   onAllianceRequest: (fromId: string) => void;
+  onRematchCreated: (gameId: string, creatorName: string) => void;
 };
 
 export function useGameSocket(serverUrl: string, demoMode: boolean, callbacks: SocketCallbacks) {
@@ -42,10 +43,12 @@ export function useGameSocket(serverUrl: string, demoMode: boolean, callbacks: S
     socket.on("gameState", callbacks.onGameState);
     socket.on("gamesList", callbacks.onGamesList);
     socket.on("allianceRequest", ({ fromId }) => callbacks.onAllianceRequest(fromId));
+    socket.on("rematchCreated", ({ gameId, creatorName }) => callbacks.onRematchCreated(gameId, creatorName));
     return () => {
       socket.off("gameState");
       socket.off("gamesList");
       socket.off("allianceRequest");
+      socket.off("rematchCreated");
     };
   }, [callbacks, socket]);
 
@@ -73,6 +76,13 @@ export function useGameSocket(serverUrl: string, demoMode: boolean, callbacks: S
   const rejoinGame = useCallback(
     (payload: RejoinGamePayload, callback?: (response: MaybeError<GameIdResponse>) => void) => {
       socket?.emit("rejoinGame", payload, callback);
+    },
+    [socket]
+  );
+
+  const leaveGame = useCallback(
+    (callback?: (response: MaybeError<OkResponse>) => void) => {
+      socket?.emit("leaveGame", null, callback);
     },
     [socket]
   );
@@ -125,6 +135,7 @@ export function useGameSocket(serverUrl: string, demoMode: boolean, callbacks: S
     joinGame,
     watchGame,
     rejoinGame,
+    leaveGame,
     listGames,
     updateOrders,
     lockIn,

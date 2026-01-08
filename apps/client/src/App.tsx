@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { buildConnectedComponentIndex, inSameConnectedComponent, PLAYER_COLORS, POWERUPS, RESOURCE_COLORS, RESOURCE_TYPES } from "@stellcon/shared";
+import { buildConnectedComponentIndex, computeIncome, inSameConnectedComponent, PLAYER_COLORS, POWERUPS, RESOURCE_COLORS, RESOURCE_TYPES, RESOLUTION_TRAVEL_MS } from "@stellcon/shared";
 import type { GameListItem, GameState, Orders, PowerupKey } from "@stellcon/shared";
 import { demoPlayerId, demoState } from "./demoState.js";
 import Board from "./features/board/Board";
@@ -8,6 +8,7 @@ import LobbyStars from "./features/lobby/LobbyStars.jsx";
 import GameStars from "./features/game/GameStars.jsx";
 import PlayerCard from "./features/lobby/PlayerCard.jsx";
 import { emptyOrders } from "./shared/lib/orders";
+import { PowerupIcon } from "./shared/components/PowerupIcon";
 import { useGameSocket } from "./shared/hooks/useGameSocket";
 import { useOrders } from "./shared/hooks/useOrders";
 import "./App.css";
@@ -24,7 +25,6 @@ const resourceLabels = {
   terrain: "Terrain",
   metal: "Metal",
   crystal: "Crystal",
-  ceveron: "Ceveron",
 };
 
 const resourceAbbr = {
@@ -32,14 +32,13 @@ const resourceAbbr = {
   terrain: "T",
   metal: "M",
   crystal: "C",
-  ceveron: "CV",
 };
 
 const powerupHelp = {
   stellarBomb: "Place on any system you can attack; eliminates half the fleets. Blocked by Defense Net.",
   defenseNet: "Place on any of your systems; blocks all attacks (including Stellar Bombs).",
   terraform: "Place on one of your tier 0–1 systems; raises its tier by 1.",
-  wormhole: "Place on any of your systems; lets you move from any of your systems to anywhere on the map.",
+  wormhole: "Select a start system you own, then select any destination system; creates a wormhole link for 3 turns.",
 };
 
 type PlayerColor = (typeof PLAYER_COLORS)[number];
@@ -53,54 +52,6 @@ function FleetIcon({ size = 14 }: { size?: number }) {
       />
     </svg>
   );
-}
-
-function PowerupIcon({ type, size = 18 }: { type: PowerupKey; size?: number }) {
-  const common = { width: size, height: size, viewBox: "0 0 24 24", "aria-hidden": true, focusable: false };
-  switch (type) {
-    case "stellarBomb":
-      return (
-        <svg {...common}>
-          <path
-            fill="currentColor"
-            d="M12 2.4c.5 0 .9.3 1 .8l.9 3.5 3.5-.9c.5-.1 1 .1 1.2.6.2.5 0 1-.4 1.3l-2.9 2.2 2.2 2.9c.3.4.3 1 0 1.3-.3.4-.8.6-1.3.4l-3.1-1.4-1.4 3.1c-.2.5-.7.8-1.2.7-.5 0-.9-.4-1-.9l-.3-3.6-3.6.3c-.5 0-1-.3-1.2-.8-.2-.5 0-1 .4-1.3l2.9-2.2-2.2-2.9c-.3-.4-.3-1 0-1.3.3-.4.8-.6 1.3-.4l3.1 1.4 1.4-3.1c.2-.4.6-.7 1.1-.7Z"
-          />
-        </svg>
-      );
-    case "terraform":
-      return (
-        <svg {...common}>
-          <path
-            fill="currentColor"
-            d="M12 3c4.5 0 8.2 3.7 8.2 8.2 0 4.2-3.2 7.7-7.3 8.2V21c0 .6-.4 1-1 1s-1-.4-1-1v-1.6C6.8 18.9 3.6 15.4 3.6 11.2 3.6 6.7 7.3 3 11.8 3Zm.1 2c-3.4 0-6.2 2.8-6.2 6.2 0 3 2.1 5.5 5.1 6.1v-2.6c0-2.5 1.2-4.7 3.1-6.1.5-.3 1.1-.2 1.4.3.3.5.2 1.1-.3 1.4-1.3 1-2.1 2.5-2.1 4.2v2.8c2.8-.8 4.9-3.4 4.9-6.1 0-3.4-2.8-6.2-6.2-6.2Z"
-          />
-        </svg>
-      );
-    case "defenseNet":
-      return (
-        <svg {...common}>
-          <path
-            fill="currentColor"
-            d="M12 2.6c.2 0 .4.1.6.2l7.2 3.2c.4.2.6.6.6 1v6.2c0 4.7-3.2 8.3-7.9 9.7h-.2c-.1 0-.3 0-.4-.1C7.2 21.6 4 18 4 13.2V7c0-.4.2-.8.6-1l7.2-3.2c.1-.1.3-.2.5-.2Zm0 2.2L6 7.3v5.9c0 3.7 2.4 6.6 6 7.6 3.6-1 6-3.9 6-7.6V7.3L12 4.8Z"
-          />
-        </svg>
-      );
-    case "wormhole":
-      return (
-        <svg {...common}>
-          <path
-            fill="currentColor"
-            d="M12 3c5 0 9 4 9 9 0 4.4-3 8.1-7.2 8.8-1 .2-1.9-.5-1.9-1.5 0-.7.5-1.3 1.2-1.4 3.2-.5 5.7-3.3 5.7-6.6 0-3.9-3.1-7-7-7S5 7.1 5 11c0 2.9 1.8 5.5 4.5 6.5.7.2 1.1 1 .8 1.7-.2.6-1 .9-1.6.7C5.4 18.6 3 15 3 11c0-5 4-9 9-9Zm-.2 5.2c.6 0 1 .4 1 1v6.8c0 .6-.4 1-1 1s-1-.4-1-1V9.2c0-.6.4-1 1-1Z"
-          />
-        </svg>
-      );
-    default:
-      return (
-        <svg {...common}>
-          <circle cx="12" cy="12" r="9" fill="currentColor" opacity="0.5" />
-        </svg>
-      );
-  }
 }
 
 function MusicIcon({ muted, size = 18 }: { muted: boolean; size?: number }) {
@@ -176,17 +127,22 @@ function App() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [endgameDismissed, setEndgameDismissed] = useState(false);
-  const { orders, resetOrders, replaceOrders, applyPlacement, queuePowerup, queueMove, removeMove, adjustMove } =
+  const { orders, resetOrders, replaceOrders, applyPlacement, queuePowerup, queueWormhole, queueMove, removeMove, adjustMove } =
     useOrders(DEMO_MODE ? (demoState.players[demoPlayerId].orders as Orders) : emptyOrders());
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [moveOriginId, setMoveOriginId] = useState<string | null>(null);
   const [placementMode, setPlacementMode] = useState(false);
   const [powerupDraft, setPowerupDraft] = useState<PowerupKey | "">("");
+  const [wormholeFromId, setWormholeFromId] = useState<string | null>(null);
+  const [powerupFx, setPowerupFx] = useState<Array<{ type: Exclude<PowerupKey, "wormhole">; targetId: string; startedAt: number }>>([]);
   const [pendingAllianceFromIds, setPendingAllianceFromIds] = useState<Record<string, boolean>>({});
   const [timer, setTimer] = useState(0);
   const [availableGames, setAvailableGames] = useState<GameListItem[]>([]);
   const lastSeenTurnRef = useRef<{ turn: number | null; phase: string | null }>({ turn: null, phase: null });
   const noticeTimeoutRef = useRef<number | null>(null);
+  const powerupFxTimeoutRef = useRef<number[]>([]);
+  const lastResolutionStartedAtRef = useRef<number | null>(null);
+  const prevSystemsRef = useRef<Map<string, { defenseNetTurns: number; terraformed: boolean; tier: number; fleets: number }>>(new Map());
   const backgroundMusicRef = useRef<HTMLAudioElement | null>(null);
   const backgroundTrackRef = useRef<string | null>(null);
   const [backgroundAudioEl, setBackgroundAudioEl] = useState<HTMLAudioElement | null>(null);
@@ -194,6 +150,7 @@ function App() {
   const [sfxMuted, setSfxMuted] = useState(() => window.localStorage.getItem("stellcon.muteSfx") === "1");
   const [codeCopied, setCodeCopied] = useState(false);
   const [showJoinPrompt, setShowJoinPrompt] = useState(false);
+  const [rematchInfo, setRematchInfo] = useState<{ gameId: string; creatorName: string } | null>(null);
   const [joinName, setJoinName] = useState(() => window.localStorage.getItem("stellcon.name") || "");
   const [joinColor, setJoinColor] = useState<PlayerColor | "">(() => {
     const stored = window.localStorage.getItem("stellcon.color");
@@ -235,13 +192,18 @@ function App() {
     setError(`Alliance request from ${fromId}. Use Diplomacy in Commanders to accept.`);
   }, []);
 
+  const handleRematchCreated = useCallback((gameId: string, creatorName: string) => {
+    setRematchInfo({ gameId, creatorName });
+  }, []);
+
   const socketCallbacks = useMemo(
     () => ({
       onGameState: handleGameState,
       onGamesList: handleGamesList,
       onAllianceRequest: handleAllianceRequest,
+      onRematchCreated: handleRematchCreated,
     }),
-    [handleAllianceRequest, handleGameState, handleGamesList]
+    [handleAllianceRequest, handleGameState, handleGamesList, handleRematchCreated]
   );
 
   const {
@@ -250,6 +212,7 @@ function App() {
     joinGame,
     watchGame,
     rejoinGame,
+    leaveGame,
     listGames,
     updateOrders,
     lockIn,
@@ -282,6 +245,8 @@ function App() {
   useEffect(() => {
     return () => {
       if (noticeTimeoutRef.current) window.clearTimeout(noticeTimeoutRef.current);
+      for (const id of powerupFxTimeoutRef.current) window.clearTimeout(id);
+      powerupFxTimeoutRef.current = [];
     };
   }, []);
 
@@ -328,6 +293,7 @@ function App() {
     const targetVolume = 0.35;
     const fadeDuration = 500; // 0.5 seconds
     let fadeInterval: number | null = null;
+    let needsFadeIn = false;
 
     const fadeInAudio = () => {
       audio.volume = 0;
@@ -343,14 +309,20 @@ function App() {
       }, 16);
     };
 
-    const tryPlay = () => {
+    const tryPlay = (withFade: boolean) => {
       audio.muted = false;
-      fadeInAudio();
+      if (withFade) {
+        fadeInAudio();
+      } else {
+        audio.volume = targetVolume;
+      }
       void audio.play().catch(() => {
         if (!shouldPlay) return;
         resumeHandler = () => {
           resumeHandler = null;
-          fadeInAudio();
+          // On user interaction resume, use fade only if it was a fresh track
+          if (withFade) fadeInAudio();
+          else audio.volume = targetVolume;
           void audio.play().catch(() => {});
         };
         window.addEventListener("pointerdown", resumeHandler, { once: true });
@@ -359,20 +331,21 @@ function App() {
     };
 
     const switchTrack = () => {
-      if (backgroundTrackRef.current === desiredTrack) return;
+      if (backgroundTrackRef.current === desiredTrack) return false;
       backgroundTrackRef.current = desiredTrack;
       audio.pause();
       audio.src = desiredTrack;
       audio.load();
+      return true;
     };
 
-    switchTrack();
+    needsFadeIn = switchTrack();
 
     if (!shouldPlay) {
       audio.pause();
       audio.muted = true;
     } else {
-      tryPlay();
+      tryPlay(needsFadeIn);
     }
 
     visibilityHandler = () => {
@@ -381,8 +354,9 @@ function App() {
         return;
       }
       if (!shouldPlay) return;
-      switchTrack();
-      tryPlay();
+      const switched = switchTrack();
+      // Only fade in if we switched tracks, otherwise just resume at normal volume
+      tryPlay(switched);
     };
 
     document.addEventListener("visibilitychange", visibilityHandler);
@@ -408,6 +382,7 @@ function App() {
     if (state?.phase === "planning") return;
     setMoveOriginId(null);
     setPowerupDraft("");
+    setWormholeFromId(null);
   }, [state?.phase]);
 
   useEffect(() => {
@@ -417,6 +392,7 @@ function App() {
   useEffect(() => {
     setEndgameDismissed(false);
     setSelectedId(null);
+    setRematchInfo(null);
   }, [gameId]);
 
   // Set default join color when prompt opens or available colors change
@@ -434,10 +410,94 @@ function App() {
     const handleKeyDown = (event) => {
       if (event.key !== "Escape") return;
       setPowerupDraft("");
+      setWormholeFromId(null);
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [powerupDraft]);
+
+  useEffect(() => {
+    if (powerupDraft !== "wormhole") setWormholeFromId(null);
+  }, [powerupDraft]);
+
+  useEffect(() => {
+    if (!state?.systems?.length) return;
+    const currentById = new Map(
+      state.systems.map((system) => [
+        system.id,
+        {
+          defenseNetTurns: Number(system.defenseNetTurns || 0),
+          terraformed: Boolean(system.terraformed),
+          tier: Number(system.tier || 0),
+          fleets: Number(system.fleets || 0),
+        },
+      ])
+    );
+
+    const startedAt = state.resolutionStartedAt || null;
+    if (state.phase === "resolving" && startedAt && lastResolutionStartedAtRef.current !== startedAt) {
+      lastResolutionStartedAtRef.current = startedAt;
+
+      for (const id of powerupFxTimeoutRef.current) window.clearTimeout(id);
+      powerupFxTimeoutRef.current = [];
+
+      const prevById = prevSystemsRef.current;
+      const immediate: Array<{ type: Exclude<PowerupKey, "wormhole">; targetId: string; startedAt: number }> = [];
+      const bomb: Array<{ type: Exclude<PowerupKey, "wormhole">; targetId: string; startedAt: number }> = [];
+      for (const player of Object.values(state.players || {})) {
+        for (const action of player?.orders?.powerups || []) {
+          if (!action || action.type === "wormhole") continue;
+          if (!("targetId" in action) || !action.targetId) continue;
+          const prev = prevById.get(action.targetId);
+          const next = currentById.get(action.targetId);
+          if (!next) continue;
+
+          if (action.type === "defenseNet") {
+            if (!prev || (prev.defenseNetTurns || 0) <= 0) {
+              if (next.defenseNetTurns > 0) immediate.push({ type: "defenseNet", targetId: action.targetId, startedAt });
+            }
+            continue;
+          }
+
+          if (action.type === "terraform") {
+            if (!prev || (!prev.terraformed && next.terraformed) || (prev.tier || 0) !== (next.tier || 0)) {
+              immediate.push({ type: "terraform", targetId: action.targetId, startedAt });
+            }
+            continue;
+          }
+
+          if (action.type === "stellarBomb") {
+            bomb.push({ type: "stellarBomb", targetId: action.targetId, startedAt: startedAt + RESOLUTION_TRAVEL_MS });
+          }
+        }
+      }
+
+      if (immediate.length) {
+        setPowerupFx(immediate);
+        powerupFxTimeoutRef.current.push(
+          window.setTimeout(() => {
+            setPowerupFx([]);
+          }, 1300)
+        );
+      }
+
+      if (bomb.length) {
+        const delayMs = Math.max(0, startedAt + RESOLUTION_TRAVEL_MS - Date.now());
+        powerupFxTimeoutRef.current.push(
+          window.setTimeout(() => {
+            setPowerupFx(bomb);
+            powerupFxTimeoutRef.current.push(
+              window.setTimeout(() => {
+                setPowerupFx([]);
+              }, 1100)
+            );
+          }, delayMs)
+        );
+      }
+    }
+
+    prevSystemsRef.current = currentById;
+  }, [state?.phase, state?.players, state?.resolutionStartedAt, state?.systems]);
 
   useEffect(() => {
     if (!socket || DEMO_MODE) return;
@@ -447,6 +507,10 @@ function App() {
       watchGame({ gameId: fromUrl }, (response) => {
         if (response && "error" in response) {
           setError(response.error);
+          const params = new URLSearchParams(window.location.search);
+          params.delete("game");
+          window.history.replaceState(null, "", params.toString() ? `?${params.toString()}` : window.location.pathname);
+          setGameId(null);
         } else {
           setShowJoinPrompt(true);
         }
@@ -585,15 +649,40 @@ function App() {
     setMoveOriginId(null);
   };
 
+  const plannedWormholes = useMemo(() => {
+    const active = Array.isArray(state?.wormholes) ? state.wormholes : [];
+    const queued = (orders.powerups || [])
+      .filter((entry) => entry.type === "wormhole")
+      .map((entry) => ({ fromId: entry.fromId, toId: entry.toId, turnsRemaining: POWERUPS.wormhole.duration }));
+    return [...active, ...queued];
+  }, [orders.powerups, state?.wormholes]);
+
   const canAttackFromOwned = useCallback((targetId) => {
     if (!playerId) return false;
-    if ((me?.wormholeTurns || 0) > 0) return true;
     for (const system of systems) {
       if (system.ownerId !== playerId) continue;
       if (links?.[system.id]?.includes(targetId)) return true;
     }
+    const systemMap = new Map(systems.map((system) => [system.id, system]));
+    for (const wormhole of plannedWormholes) {
+      if ((wormhole.turnsRemaining || 0) <= 0) continue;
+      const from = systemMap.get(wormhole.fromId);
+      const to = systemMap.get(wormhole.toId);
+      if (from?.ownerId === playerId && wormhole.toId === targetId) return true;
+      if (to?.ownerId === playerId && wormhole.fromId === targetId) return true;
+    }
     return false;
-  }, [links, me?.wormholeTurns, playerId, systems]);
+  }, [links, plannedWormholes, playerId, systems]);
+
+  const canTravelViaWormhole = useCallback(
+    (fromId: string, toId: string) =>
+      plannedWormholes.some(
+        (wormhole) =>
+          (wormhole.turnsRemaining || 0) > 0 &&
+          ((wormhole.fromId === fromId && wormhole.toId === toId) || (wormhole.fromId === toId && wormhole.toId === fromId))
+      ),
+    [plannedWormholes]
+  );
 
   const isAlliedWith = useCallback(
     (ownerId) => {
@@ -621,7 +710,11 @@ function App() {
       }
 
       if (powerupDraft === "wormhole") {
-        if (system.ownerId === playerId) targets.add(system.id);
+        if (!wormholeFromId) {
+          if (system.ownerId === playerId) targets.add(system.id);
+        } else if (system.id !== wormholeFromId) {
+          targets.add(system.id);
+        }
         continue;
       }
 
@@ -640,7 +733,7 @@ function App() {
       }
     }
     return targets;
-  }, [canAttackFromOwned, isAlliedWith, me?.research, playerId, powerupDraft, state?.phase, systems]);
+  }, [canAttackFromOwned, isAlliedWith, me?.research, playerId, powerupDraft, state?.phase, systems, wormholeFromId]);
 
   const powerupHighlightColor = useMemo(() => {
     if (!powerupDraft) return "";
@@ -653,6 +746,7 @@ function App() {
     if (!playerId) return false;
     if (state?.phase !== "planning") return false;
     if (!powerupDraft) return false;
+    if (powerupDraft === "wormhole") return false;
     const powerup = POWERUPS[powerupDraft];
     if (!powerup) return false;
     if ((me?.research?.[powerup.resource] || 0) < powerup.cost) return false;
@@ -663,7 +757,7 @@ function App() {
       return false;
     }
 
-    queuePowerup(powerupDraft as PowerupKey, system.id);
+    queuePowerup(powerupDraft as Exclude<PowerupKey, "wormhole">, system.id);
     setPowerupDraft("");
     setMoveOriginId(null);
     return true;
@@ -674,6 +768,39 @@ function App() {
     if (!system) return;
 
     if (powerupDraft) {
+      if (powerupDraft === "wormhole") {
+        if (!playerId) return;
+        if (state?.phase !== "planning") return;
+        const powerup = POWERUPS.wormhole;
+        if (!powerup) return;
+        if ((me?.research?.[powerup.resource] || 0) < powerup.cost) return;
+
+        if (!wormholeFromId) {
+          if (!powerupTargetIds.has(system.id)) {
+            flashNotice("Select one of your systems to start the wormhole.");
+            return;
+          }
+          setWormholeFromId(system.id);
+          return;
+        }
+
+        if (system.id === wormholeFromId) {
+          setWormholeFromId(null);
+          return;
+        }
+
+        if (!powerupTargetIds.has(system.id)) {
+          flashNotice("Not a valid destination for that wormhole.");
+          return;
+        }
+
+        queueWormhole(wormholeFromId, system.id);
+        setPowerupDraft("");
+        setWormholeFromId(null);
+        setMoveOriginId(null);
+        return;
+      }
+
       if (tryQueuePowerupAt(system)) return;
       return;
     }
@@ -689,15 +816,13 @@ function App() {
     if (!playerId) return;
     if (state?.phase !== "planning") return;
 
-    const wormholeActive = (me?.wormholeTurns || 0) > 0;
-
     const isOwnedByMe = system.ownerId === playerId;
 
     if (isOwnedByMe) {
       if (moveOriginId && moveOriginId !== system.id) {
-        const canReach = wormholeActive || inSameConnectedComponent(componentById, moveOriginId, system.id);
+        const canReach = canTravelViaWormhole(moveOriginId, system.id) || inSameConnectedComponent(componentById, moveOriginId, system.id);
         if (!canReach) {
-          flashNotice("Not reachable (need Wormhole or a connected section).");
+          flashNotice("Not reachable (need a connected section or a Wormhole link).");
           return;
         }
 
@@ -738,9 +863,9 @@ function App() {
     }
 
     const isNeighbor = links?.[moveOriginId]?.includes(system.id);
-    const canReach = wormholeActive || isNeighbor;
+    const canReach = isNeighbor || canTravelViaWormhole(moveOriginId, system.id);
     if (!canReach) {
-      flashNotice("Target not reachable (need Wormhole or a direct lane).");
+      flashNotice("Target not reachable (need a direct lane or a Wormhole link).");
       return;
     }
 
@@ -802,6 +927,9 @@ function App() {
   };
 
   const handleLeaveGame = () => {
+    if (socket && !DEMO_MODE) {
+      leaveGame();
+    }
     window.localStorage.removeItem("stellcon.session");
     const params = new URLSearchParams(window.location.search);
     params.delete("game");
@@ -825,7 +953,29 @@ function App() {
       handleLeaveGame();
       return;
     }
-    handleCreate({ name, config: state.config, color });
+    // Pass the current gameId as previousGameId to notify other players about the rematch
+    setError("");
+    createGame({ name, config: state.config, color, previousGameId: gameId || undefined }, (response) => {
+      if (!response) {
+        setError("No response from server.");
+        return;
+      }
+      if ("error" in response) {
+        setError(response.error);
+        return;
+      }
+      setPlayerId(response.playerId);
+      setGameId(response.gameId);
+      resetOrders();
+      setSelectedId(null);
+      window.localStorage.setItem(
+        "stellcon.session",
+        JSON.stringify({ gameId: response.gameId, playerId: response.playerId })
+      );
+      const params = new URLSearchParams(window.location.search);
+      params.set("game", response.gameId);
+      window.history.replaceState(null, "", `?${params.toString()}`);
+    });
   };
 
   if (!gameId) {
@@ -875,18 +1025,27 @@ function App() {
     );
   }
 
-  const players = Object.values(state.players || {}).map((player) => ({
-    ...player,
-    systemCount: systems.filter((system) => system.ownerId === player.id).length,
-  }));
+  const players = Object.values(state.players || {}).map((player) => {
+    const income = computeIncome(state, player.id);
+    return {
+      ...player,
+      systemCount: systems.filter((system) => system.ownerId === player.id).length,
+      fleetProduction: income.fleets,
+    };
+  });
   const commanderPlayers = [...players].sort((a, b) => {
     if (a.id === playerId) return -1;
     if (b.id === playerId) return 1;
     return String(a.name || "").localeCompare(String(b.name || ""));
   });
-  const rankedPlayers = [...players].sort((a, b) => b.systemCount - a.systemCount);
+  // Sort by fleet production first, then by system count as tiebreaker
+  const rankedPlayers = [...players].sort((a, b) => {
+    if (b.fleetProduction !== a.fleetProduction) return b.fleetProduction - a.fleetProduction;
+    return b.systemCount - a.systemCount;
+  });
   const isComplete = state.phase === "complete";
-  const winnerPlayer = (state.winnerId ? players.find((player) => player.id === state.winnerId) : null) || rankedPlayers[0] || null;
+  const isTie = state.winnerId === null && isComplete;
+  const winnerPlayer = isTie ? null : (state.winnerId ? players.find((player) => player.id === state.winnerId) : rankedPlayers[0] || null);
   const isWaitingForPlayers = state.turn === 1 && players.length < state.config.maxPlayers;
 
   // For join prompt: calculate available colors and existing names
@@ -1057,7 +1216,11 @@ function App() {
         {notice ? <div className="notice">{notice}</div> : null}
         {powerupDraft ? (
           <div className="notice">
-            Placing {POWERUPS[powerupDraft]?.label || powerupDraft}: click a highlighted system (Esc to cancel).
+            {powerupDraft === "wormhole"
+              ? wormholeFromId
+                ? "Placing Wormhole: select a destination system (Esc to cancel)."
+                : "Placing Wormhole: select a start system you own (Esc to cancel)."
+              : `Placing ${POWERUPS[powerupDraft]?.label || powerupDraft}: click a highlighted system (Esc to cancel).`}
           </div>
         ) : null}
       </div>
@@ -1070,22 +1233,50 @@ function App() {
             </button>
             <div className="endgame-winner">
               <div className="endgame-winner-title">
-                <FleetIcon size={16} /> Winner
+                <FleetIcon size={16} /> {isTie ? "Tie Game" : "Winner"}
               </div>
-              <div className="endgame-winner-name">{winnerPlayer?.name || "Unknown"}</div>
-              <div className="endgame-winner-meta">{winnerPlayer?.systemCount ?? 0} systems</div>
+              {isTie ? (
+                <div className="endgame-winner-name">Draw</div>
+              ) : (
+                <>
+                  <div className="endgame-winner-name">{winnerPlayer?.name || "Unknown"}</div>
+                  <div className="endgame-winner-meta">{winnerPlayer?.fleetProduction ?? 0} fleet production</div>
+                </>
+              )}
             </div>
             <div className="panel-title">Final Rankings</div>
             <div className="endgame-list">
               {rankedPlayers.map((player, index) => (
-                <div key={player.id} className={`endgame-row${player.id === winnerPlayer?.id ? " winner" : ""}`}>
+                <div key={player.id} className={`endgame-row${!isTie && player.id === winnerPlayer?.id ? " winner" : ""}`}>
                   <span>
                     {index + 1}. {player.name}
                   </span>
-                  <span>{player.systemCount} systems</span>
+                  <span>{player.fleetProduction} fleets · {player.systemCount} systems</span>
                 </div>
               ))}
             </div>
+            {rematchInfo ? (
+              <div className="endgame-rematch">
+                <div className="endgame-rematch-text">
+                  {rematchInfo.creatorName} started a rematch!
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const rawName = window.localStorage.getItem("stellcon.name") || me?.name || "";
+                    const name = rawName.trim().replace(/\s+/g, " ");
+                    const color = window.localStorage.getItem("stellcon.color") || me?.color || "";
+                    if (name.length < 2) {
+                      handleWatch(rematchInfo.gameId);
+                      return;
+                    }
+                    handleJoin({ name, gameId: rematchInfo.gameId, color });
+                  }}
+                >
+                  Join Rematch
+                </button>
+              </div>
+            ) : null}
             <div className="endgame-actions">
               <button type="button" onClick={handleNewMatch}>
                 New Match
@@ -1236,7 +1427,9 @@ function App() {
             resolutionBattles={state.resolutionBattles}
             phase={state.phase}
             viewerId={playerId}
-            wormholeTurns={me?.wormholeTurns || 0}
+            wormholes={plannedWormholes}
+            wormholeDraftFromId={powerupDraft === "wormhole" ? wormholeFromId : null}
+            powerupFx={powerupFx}
             powerupDraft={powerupDraft}
             powerupTargetIds={powerupTargetIds}
             powerupHighlightColor={powerupHighlightColor}
@@ -1291,6 +1484,7 @@ function App() {
                         onClick={() => {
                           setPlacementMode(false);
                           setMoveOriginId(null);
+                          setWormholeFromId(null);
                           setPowerupDraft((current) => (current === powerup.key ? "" : powerup.key));
                         }}
                         aria-label={`${powerup.label}: ${points}/${powerup.cost} ${resourceLabels[powerup.resource]}`}

@@ -69,6 +69,7 @@ export const demoState = {
   turnEndsAt: Date.now() + 56000,
   systems,
   links,
+  wormholes: [],
   players: {
     p1: {
       id: "p1",
@@ -77,7 +78,6 @@ export const demoState = {
       income: { fusion: 98, terrain: 92, metal: 96, crystal: 87 },
       research: { fusion: 18, terrain: 14, metal: 20, crystal: 10 },
       fleetsToPlace: 6,
-      wormholeTurns: 0,
       alliances: {},
       locked: false,
       orders: { placements: {}, moves: [], powerups: [], research: [] },
@@ -89,7 +89,6 @@ export const demoState = {
       income: { fusion: 66, terrain: 64, metal: 60, crystal: 56 },
       research: { fusion: 10, terrain: 8, metal: 6, crystal: 12 },
       fleetsToPlace: 5,
-      wormholeTurns: 0,
       alliances: {},
       locked: false,
       orders: { placements: {}, moves: [], powerups: [], research: [] },
