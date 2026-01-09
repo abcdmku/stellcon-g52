@@ -293,6 +293,18 @@ const Board = memo(function Board({
     return entries;
   }, [systems]);
 
+  const queuedOutgoingBySystemId = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const move of orders?.moves || []) {
+      if (!move?.fromId) continue;
+      const count = Number(move.count) || 0;
+      if (count > 0) {
+        map.set(move.fromId, (map.get(move.fromId) || 0) + count);
+      }
+    }
+    return map;
+  }, [orders?.moves]);
+
   const queuedPowerupsBySystemId = useMemo(() => {
     const map = new Map<string, PowerupKey[]>();
     for (const action of orders?.powerups || []) {
@@ -1196,6 +1208,10 @@ const Board = memo(function Board({
             classes.push("placeable");
           }
           const queuedBadges = queuedPowerupsBySystemId.get(system.id) || [];
+          const queuedOutgoing = phase === "planning" && viewerId && system.ownerId === viewerId
+            ? queuedOutgoingBySystemId.get(system.id) || 0
+            : 0;
+          const remainingFleets = queuedOutgoing > 0 ? displayedFleets - queuedOutgoing : 0;
           const fx = (powerupFxBySystemId.get(system.id) || []).filter((entry) => entry.type !== "stellarBomb");
           const shouldTintCore = Boolean(owner?.color);
           const baseRgb = owner?.color ? getRgb(owner.color) : null;
@@ -1240,7 +1256,13 @@ const Board = memo(function Board({
               ) : null}
               <div className="hex-border" />
               <div className="hex-core" />
-              <div className="hex-value">{displayedFleets}</div>
+              {queuedOutgoing > 0 ? (
+                <div className="hex-value has-outgoing">
+                  <span className="hex-remaining">{remainingFleets}</span>
+                </div>
+              ) : (
+                <div className="hex-value">{displayedFleets}</div>
+              )}
               <div className="hex-tier-row">
                 <div className={`hex-tier tier-${system.tier ?? 0}`} aria-label={`Tier ${system.tier ?? 0}`}>
                   {Array.from({ length: system.tier ?? 0 }).map((_, index) => (

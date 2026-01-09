@@ -1455,6 +1455,18 @@ button:disabled {
   cursor: default;
 }
 
+.hex-value.has-outgoing {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0;
+}
+
+.hex-value.has-outgoing .hex-remaining {
+  font-size: clamp(26px, 2.8vw, 32px);
+  color: rgba(255, 255, 255, 0.95);
+}
+
 .hex-tier-row {
   position: absolute;
   top: 12px;
