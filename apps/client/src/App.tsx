@@ -625,6 +625,7 @@ function App() {
     setMoveOriginId(null);
     setPowerupDraft("");
     setWormholeFromId(null);
+    setSelectedId(null);
   }, [state?.phase]);
 
   useEffect(() => {
@@ -915,6 +916,7 @@ function App() {
   const handlePlacement = (systemId, delta) => {
     applyPlacement(systemId, delta, Number(me?.fleetsToPlace || 0));
     setMoveOriginId(null);
+    setSelectedId(null);
   };
 
   const plannedWormholes = useMemo(() => {
@@ -1041,11 +1043,11 @@ function App() {
     queuePowerup(powerupDraft as Exclude<PowerupKey, "wormhole">, system.id);
     setPowerupDraft("");
     setMoveOriginId(null);
+    setSelectedId(null);
     return true;
   };
 
   const handleSystemClick = (system, event) => {
-    setSelectedId(system.id);
     if (!system) return;
 
     if (powerupDraft) {
@@ -1062,11 +1064,13 @@ function App() {
             return;
           }
           setWormholeFromId(system.id);
+          setSelectedId(system.id);
           return;
         }
 
         if (system.id === wormholeFromId) {
           setWormholeFromId(null);
+          setSelectedId(null);
           return;
         }
 
@@ -1079,6 +1083,7 @@ function App() {
         setPowerupDraft("");
         setWormholeFromId(null);
         setMoveOriginId(null);
+        setSelectedId(null);
         return;
       }
 
@@ -1104,6 +1109,7 @@ function App() {
         const canReach = canTravelViaWormhole(moveOriginId, system.id) || inSameConnectedComponent(componentById, moveOriginId, system.id);
         if (!canReach) {
           flashNotice("Not reachable (need a connected section or a Wormhole link).");
+          setSelectedId(moveOriginId);
           return;
         }
 
@@ -1118,13 +1124,19 @@ function App() {
         const available = Math.max(0, originFleets - queued);
         if (available <= 0) {
           flashNotice("No fleets left at that origin.");
+          setSelectedId(moveOriginId);
           return;
         }
         queueMove(moveOriginId, system.id, origin.fleets || 0);
+        setSelectedId(moveOriginId);
         return;
       }
 
-      setMoveOriginId((current) => (current === system.id ? null : system.id));
+      setMoveOriginId((current) => {
+        const next = current === system.id ? null : system.id;
+        setSelectedId(next);
+        return next;
+      });
       return;
     }
 
@@ -1164,6 +1176,7 @@ function App() {
       return;
     }
     queueMove(moveOriginId, system.id, origin.fleets || 0);
+    setSelectedId(moveOriginId);
   };
 
   const handleTogglePlacementMode = () => {
@@ -1171,6 +1184,7 @@ function App() {
     if (state?.phase !== "planning") return;
     if (fleetsRemaining <= 0) return;
     setMoveOriginId(null);
+    setSelectedId(null);
     setPowerupDraft("");
     setPlacementMode((current) => !current);
   };
@@ -1803,7 +1817,10 @@ function App() {
             selectedId={selectedId}
             moveOriginId={moveOriginId}
             onSystemClick={handleSystemClick}
-            onBackgroundClick={() => setSelectedId(null)}
+            onBackgroundClick={() => {
+              setSelectedId(null);
+              setMoveOriginId(null);
+            }}
             onMoveAdjust={handleAdjustMove}
             onMoveCancel={handleRemoveMove}
           />
@@ -1849,6 +1866,7 @@ function App() {
                         onClick={() => {
                           setPlacementMode(false);
                           setMoveOriginId(null);
+                          setSelectedId(null);
                           setWormholeFromId(null);
                           setPowerupDraft((current) => (current === powerup.key ? "" : powerup.key));
                         }}

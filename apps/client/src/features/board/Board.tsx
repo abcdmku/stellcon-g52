@@ -1,4 +1,4 @@
-import type { MouseEvent } from "react";
+import type { CSSProperties, MouseEvent } from "react";
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { clamp, RESOLUTION_TRAVEL_MS, RESOURCE_COLORS, RESOURCE_TYPES } from "@stellcon/shared";
 import type { GameState, Orders, PowerupKey, SystemState, WormholeLink } from "@stellcon/shared";
@@ -19,6 +19,75 @@ const MOVE_BADGE_POINTS = "-16,-11 16,0 -16,11 -10,0";
 const MOVE_VERTICAL_RATIO = 0.35;
 const RESOURCE_MAX = 5;
 const DRAG_THRESHOLD_PX = 10;
+
+type Rgb = { r: number; g: number; b: number };
+
+function hexToRgb(hexColor: string): Rgb | null {
+  const value = (hexColor || "").trim();
+  if (!value.startsWith("#")) return null;
+  const hex = value.slice(1);
+  if (hex.length !== 6) return null;
+  const r = Number.parseInt(hex.slice(0, 2), 16);
+  const g = Number.parseInt(hex.slice(2, 4), 16);
+  const b = Number.parseInt(hex.slice(4, 6), 16);
+  if (Number.isNaN(r) || Number.isNaN(g) || Number.isNaN(b)) return null;
+  return { r, g, b };
+}
+
+function mixRgb(a: Rgb, b: Rgb, t: number): Rgb {
+  const k = clamp(t, 0, 1);
+  return {
+    r: Math.round(a.r + (b.r - a.r) * k),
+    g: Math.round(a.g + (b.g - a.g) * k),
+    b: Math.round(a.b + (b.b - a.b) * k),
+  };
+}
+
+function rgbToHsl(rgb: Rgb) {
+  const r = rgb.r / 255;
+  const g = rgb.g / 255;
+  const b = rgb.b / 255;
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const delta = max - min;
+  const l = (max + min) / 2;
+
+  if (delta === 0) {
+    return { h: 0, s: 0, l: l * 100 };
+  }
+
+  const s = delta / (1 - Math.abs(2 * l - 1));
+  let h = 0;
+
+  if (max === r) {
+    h = ((g - b) / delta) % 6;
+  } else if (max === g) {
+    h = (b - r) / delta + 2;
+  } else {
+    h = (r - g) / delta + 4;
+  }
+
+  h *= 60;
+  if (h < 0) h += 360;
+
+  return { h, s: s * 100, l: l * 100 };
+}
+
+function hslCss(h: number, s: number, l: number) {
+  return `hsl(${Math.round(h)}, ${Math.round(s)}%, ${Math.round(l)}%)`;
+}
+
+function deriveCoreGradient(rgb: Rgb) {
+  const { h, s, l } = rgbToHsl(rgb);
+  // Keep ownership readable without looking neon; highlights should do the "pop".
+  const sat = clamp(s * 0.9, 30, 68);
+  const topL = clamp(l * 0.48, 14, 32);
+  const bottomL = Math.max(7, Math.min(clamp(l * 0.25, 7, 20), topL - 10));
+  return {
+    top: hslCss(h, sat, topL),
+    bottom: hslCss(h, sat * 0.92, bottomL),
+  };
+}
 
 function computeMoveCurveControlPoint(dx: number, len: number, mx: number, my: number, arch: number) {
   if (len <= 0.001) return { cx: mx, cy: my };
@@ -96,6 +165,15 @@ const Board = memo(function Board({
   const reducedMotion = useMemo(() => {
     if (typeof window === "undefined") return false;
     return window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches ?? false;
+  }, []);
+  const rgbCacheRef = useRef(new Map<string, Rgb | null>());
+  const getRgb = useCallback((hex: string) => {
+    const cache = rgbCacheRef.current;
+    const cached = cache.get(hex);
+    if (cached !== undefined) return cached;
+    const parsed = hexToRgb(hex);
+    cache.set(hex, parsed);
+    return parsed;
   }, []);
   const [scale, setScale] = useState(1);
   const [offset, setOffset] = useState({ x: 0, y: 0 });
@@ -223,60 +301,6 @@ const Board = memo(function Board({
     for (const system of systems) entries[system.id] = system;
     return entries;
   }, [systems]);
-
-  // Viewport virtualization - only render systems visible in current view
-  // Use a separate state for viewport calculation that updates less frequently
-  const [viewportSize, setViewportSize] = useState({ width: 2000, height: 1500 });
-  const [stableCamera, setStableCamera] = useState({ offset: { x: 0, y: 0 }, scale: 1 });
-  const cameraUpdateTimeoutRef = useRef<number | null>(null);
-
-  useEffect(() => {
-    const updateSize = () => {
-      const board = boardRef.current;
-      if (board) {
-        const rect = board.getBoundingClientRect();
-        setViewportSize({ width: rect.width, height: rect.height });
-      }
-    };
-    updateSize();
-    window.addEventListener("resize", updateSize);
-    return () => window.removeEventListener("resize", updateSize);
-  }, []);
-
-  // Debounce camera updates for virtualization to avoid recalculating during active pan/zoom
-  useEffect(() => {
-    if (cameraUpdateTimeoutRef.current) {
-      window.clearTimeout(cameraUpdateTimeoutRef.current);
-    }
-    cameraUpdateTimeoutRef.current = window.setTimeout(() => {
-      setStableCamera({ offset, scale });
-    }, 150);
-    return () => {
-      if (cameraUpdateTimeoutRef.current) {
-        window.clearTimeout(cameraUpdateTimeoutRef.current);
-      }
-    };
-  }, [offset, scale]);
-
-  const visibleSystems = useMemo(() => {
-    // Add very generous padding to avoid pop-in during panning
-    const padding = HEX_SIZE * 4;
-    const halfWidth = (viewportSize.width / 2 / stableCamera.scale) + padding;
-    const halfHeight = (viewportSize.height / 2 / stableCamera.scale) + padding;
-    const centerX = -stableCamera.offset.x / stableCamera.scale;
-    const centerY = -stableCamera.offset.y / stableCamera.scale;
-
-    return systems.filter((system) => {
-      const pos = positions[system.id];
-      if (!pos) return false;
-      return (
-        pos.x >= centerX - halfWidth &&
-        pos.x <= centerX + halfWidth &&
-        pos.y >= centerY - halfHeight &&
-        pos.y <= centerY + halfHeight
-      );
-    });
-  }, [systems, positions, stableCamera, viewportSize]);
 
   const queuedPowerupsBySystemId = useMemo(() => {
     const map = new Map<string, PowerupKey[]>();
@@ -1126,7 +1150,7 @@ const Board = memo(function Board({
               );
             })
           : null}
-        {visibleSystems.map((system) => {
+        {systems.map((system) => {
           const position = positions[system.id];
           const battle = phase === "resolving" ? battleByTargetId.get(system.id) : null;
           const elapsed = resolutionStartedAt ? combatNow - resolutionStartedAt : 0;
@@ -1142,7 +1166,6 @@ const Board = memo(function Board({
               : system.ownerId;
           const owner = displayedOwnerId ? players?.[displayedOwnerId] : null;
           const accent = owner?.color || "#8c9bbe";
-          const accentGlow = hexToRgba(accent, 0.16) || "rgba(140, 155, 190, 0.14)";
           const placement = orders?.placements?.[system.id] || 0;
 
           let displayedFleets = system.fleets || 0;
@@ -1183,18 +1206,31 @@ const Board = memo(function Board({
           }
           const queuedBadges = queuedPowerupsBySystemId.get(system.id) || [];
           const fx = (powerupFxBySystemId.get(system.id) || []).filter((entry) => entry.type !== "stellarBomb");
+          const shouldTintCore = Boolean(owner?.color) || system.terraformed;
+          const baseRgb = owner?.color ? getRgb(owner.color) : { r: 42, g: 50, b: 66 };
+          const terrainRgb = system.terraformed ? getRgb(RESOURCE_COLORS.terrain) : null;
+          let core = null;
+          if (shouldTintCore && baseRgb) {
+            let next = baseRgb;
+            if (terrainRgb) next = mixRgb(next, terrainRgb, 0.18);
+            core = deriveCoreGradient(next);
+          }
+
+          const style = {
+            left: `${position.x}px`,
+            top: `${position.y}px`,
+            "--accent-color": accent,
+            "--powerup-color": powerupHighlightColor || "",
+          } as CSSProperties;
+          if (core) {
+            style["--hex-core-a"] = core.top;
+            style["--hex-core-b"] = core.bottom;
+          }
           return (
             <div
               key={system.id}
               className={classes.join(" ")}
-              style={{
-                left: `${position.x}px`,
-                top: `${position.y}px`,
-                "--accent-color": accent,
-                "--accent-glow": accentGlow,
-                "--core-color": owner?.color || "#3b3f46",
-                "--powerup-color": powerupHighlightColor || "",
-              }}
+              style={style}
               onClick={(event) => {
                 if (suppressNextClick.current) {
                   suppressNextClick.current = false;

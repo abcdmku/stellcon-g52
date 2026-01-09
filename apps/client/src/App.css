@@ -463,9 +463,11 @@ button:disabled {
   height: 100%;
   min-height: 0;
   border-radius: 0;
-  background: radial-gradient(circle at 40% 30%, rgba(52, 84, 142, 0.18), transparent 55%),
-    radial-gradient(circle at 70% 70%, rgba(110, 80, 160, 0.14), transparent 45%),
-    rgba(6, 10, 20, 0.52);
+  background:
+    radial-gradient(circle at 50% 55%, rgba(0, 0, 0, 0), rgba(0, 0, 0, 0.45) 68%, rgba(0, 0, 0, 0.72) 100%),
+    radial-gradient(circle at 22% 28%, rgba(92, 138, 230, 0.18), transparent 58%),
+    radial-gradient(circle at 78% 72%, rgba(185, 102, 255, 0.12), transparent 56%),
+    linear-gradient(135deg, rgba(6, 8, 16, 0.86), rgba(7, 10, 20, 0.72));
   border: none;
   overflow: hidden;
   /* Disable browser touch gestures for instant response */
@@ -561,8 +563,10 @@ button:disabled {
   stroke-linecap: round;
   stroke-dasharray: 2 14;
   opacity: 0.95;
-  animation: move-flow 0.75s linear infinite;
+  animation: move-flow 0.8s linear infinite;
   filter: drop-shadow(0 0 14px rgba(116, 242, 255, 0.25));
+  will-change: stroke-dashoffset;
+  transform: translateZ(0);
 }
 
 .move-line-pulse.revealed,
@@ -703,7 +707,7 @@ button:disabled {
     stroke-dashoffset: 0;
   }
   100% {
-    stroke-dashoffset: -18;
+    stroke-dashoffset: -16;
   }
 }
 
@@ -1056,11 +1060,35 @@ button:disabled {
   }
 }
 
+@keyframes origin-pulse {
+  0% {
+    opacity: 0.4;
+  }
+  55% {
+    opacity: 0.95;
+  }
+  100% {
+    opacity: 0.4;
+  }
+}
+
+@keyframes origin-border-pulse {
+  0%, 100% {
+    filter: brightness(1);
+  }
+  50% {
+    filter: brightness(1.5);
+  }
+}
+
 .hex {
   position: absolute;
   width: 112px;
   height: 97px;
   --hex-scale: 1;
+  /* Default (neutral) tile body */
+  --hex-core-a: #252a31;
+  --hex-core-b: #15161d;
   transform: translate3d(-50%, -50%, var(--hex-raster-z)) scale(var(--hex-scale));
   clip-path: polygon(25% 0%, 75% 0%, 100% 50%, 75% 100%, 25% 100%, 0 50%);
   display: flex;
@@ -1069,10 +1097,7 @@ button:disabled {
   cursor: pointer;
   user-select: none;
   z-index: 10;
-  isolation: isolate;
-  /* Simplified filter - single drop shadow for depth only */
-  filter: drop-shadow(0 8px 16px rgba(0, 0, 0, 0.3));
-  /* GPU layer hint for faster compositing */
+  /* No filter - much faster rendering */
   contain: layout style paint;
 }
 
@@ -1081,7 +1106,12 @@ button:disabled {
   inset: 0;
   clip-path: inherit;
   z-index: 0;
-  background: linear-gradient(145deg, rgba(65, 65, 65, 0.54), rgba(7, 9, 14, 0.96));
+  /* Border uses darker version of tile core color */
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.06), rgba(0, 0, 0, 0.5)),
+    linear-gradient(165deg,
+      color-mix(in srgb, var(--hex-core-a) 50%, #000) 0%,
+      color-mix(in srgb, var(--hex-core-b) 40%, #000) 100%);
 }
 
 .hex .hex-core {
@@ -1089,53 +1119,11 @@ button:disabled {
   inset: 6px;
   clip-path: inherit;
   z-index: 1;
-  background:
-    radial-gradient(circle at 28% 22%, rgba(105, 105, 105, 0.16), transparent 58%),
-    radial-gradient(circle at 50% 78%, rgba(0, 0, 0, 0.28), transparent 62%),
-    linear-gradient(
-      155deg,
-      color-mix(in srgb, var(--core-color) 78%, rgb(109, 109, 109) 22%),
-      color-mix(in srgb, var(--core-color) 66%, rgb(0, 0, 0) 34%)
-    );
-  opacity: 0.98;
-  box-shadow:
-    inset 0 0 0 0px rgba(133, 133, 133, 0.06),
-    inset 0 0 18px rgba(0, 0, 0, 0.72);
+  /* Single-pass paint for performance */
+  background: linear-gradient(165deg, var(--hex-core-a) 0%, var(--hex-core-b) 100%);
 }
 
-.hex.owned {
-  /* Glow effect via filter for owned hexes */
-  filter: drop-shadow(0 8px 16px rgba(0, 0, 0, 0.3))
-          drop-shadow(0 0 12px var(--accent-glow, rgba(116, 242, 255, 0.15)));
-}
-
-.hex.owned .hex-border {
-  background: linear-gradient(145deg, rgba(139, 139, 139, 0.16), rgba(7, 9, 14, 0.96));
-
-}
-
-.hex.owned .hex-core {
-  background:
-    radial-gradient(circle at 28% 22%, rgba(255, 255, 255, 0.18), transparent 55%),
-    radial-gradient(circle at 50% 78%, rgba(0, 0, 0, 0.22), transparent 62%),
-    linear-gradient(
-      155deg,
-      color-mix(in srgb, var(--core-color) 76%, rgb(0, 0, 0) 90%),
-      color-mix(in srgb, var(--core-color) 64%, black 86%)
-    );
-}
-
-.hex .hex-core::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  clip-path: inherit;
-  background:
-    radial-gradient(circle at 22% 18%, rgba(255, 255, 255, 0.08), transparent 56%),
-    radial-gradient(circle at 70% 70%, rgba(255, 255, 255, 0.05), transparent 60%);
-  opacity: 0.5;
-  mix-blend-mode: screen;
-}
+/* Removed hex-core::after - expensive gradients and blend mode */
 
 .hex-fx {
   position: absolute;
@@ -1150,7 +1138,7 @@ button:disabled {
   inset: 0;
   clip-path: inherit;
   pointer-events: none;
-  mix-blend-mode: screen;
+  /* Removed mix-blend-mode for better performance */
 }
 
 .stellar-bomb-explosion {
@@ -1160,7 +1148,7 @@ button:disabled {
   height: 220px;
   z-index: 20;
   pointer-events: none;
-  filter: drop-shadow(0 0 22px rgba(255, 86, 86, 0.22));
+  /* Removed expensive filter */
 }
 
 .stellar-bomb-explosion canvas {
@@ -1241,134 +1229,221 @@ button:disabled {
 .hex.defense-net-active::before {
   content: "";
   position: absolute;
-  inset: -20%;
+  inset: -10%;
   clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%);
   pointer-events: none;
   z-index: 2;
-  background:
-    repeating-linear-gradient(60deg, rgba(163, 211, 255, 0.18) 0 1px, transparent 1px 10px),
-    repeating-linear-gradient(-60deg, rgba(163, 211, 255, 0.14) 0 1px, transparent 1px 10px),
-    radial-gradient(circle at 50% 50%, rgba(163, 211, 255, 0.12), transparent 60%);
-  opacity: 0.65;
-  mix-blend-mode: screen;
-  animation: defense-net-shimmer 2s linear infinite;
-}
-
-.hex.terraformed .hex-core::after {
-  background:
-    radial-gradient(circle at 22% 18%, rgba(255, 255, 255, 0.06), transparent 56%),
-    radial-gradient(circle at 70% 70%, rgba(255, 255, 255, 0.04), transparent 60%),
-    radial-gradient(circle at 55% 55%, rgba(108, 247, 178, 0.08), transparent 62%);
-  opacity: 0.62;
+  /* Simple solid overlay instead of animated gradients */
+  background: rgba(163, 211, 255, 0.15);
+  border: 2px solid rgba(163, 211, 255, 0.4);
 }
 
 .hex.neighbor {
-  filter: drop-shadow(0 8px 16px rgba(0, 0, 0, 0.3))
-          drop-shadow(0 0 10px var(--accent-glow, rgba(116, 242, 255, 0.25)));
+  /* Subtle glow to indicate reachable movement tiles */
+  filter:
+    drop-shadow(0 0 6px color-mix(in srgb, var(--accent-color, #74f2ff) 20%, transparent));
 }
 
 .hex.neighbor .hex-border {
-  background: linear-gradient(
-    145deg,
-    color-mix(in srgb, var(--accent-color, rgba(116, 242, 255, 1)) 40%, rgba(65, 65, 65, 0.54)),
-    color-mix(in srgb, var(--accent-color, rgba(116, 242, 255, 1)) 20%, rgba(7, 9, 14, 0.96))
-  );
+  /* Subtle highlight - keeps tile color but adds accent glow */
+  background:
+    linear-gradient(165deg,
+      color-mix(in srgb, var(--accent-color, #385e63) 10%, #2e2e2e) 20%,
+      color-mix(in srgb, var(--accent-color, #385e63) 20%, #000000) 80%)
 }
 
+.hex.neighbor .hex-core {
+  /* Subtle radial glow on core */
+  background:
+    radial-gradient(
+      circle at 45% 40%,
+      color-mix(in srgb, var(--accent-color, #74f2ff) 18%, transparent),
+      transparent 55%
+    ),
+    linear-gradient(145deg,
+      color-mix(in srgb, var(--accent-color) 0%, var(--hex-core-a)),
+      color-mix(in srgb, var(--accent-color) 1%, var(--hex-core-b)));
+}
 
 .hex.placeable {
-  filter: drop-shadow(0 8px 16px rgba(0, 0, 0, 0.3))
-          drop-shadow(0 0 12px rgba(108, 247, 178, 0.2));
+  /* Subtle glow for placeable tiles */
+  filter:
+    drop-shadow(0 0 6px color-mix(in srgb, var(--accent-color, #74f2ff) 20%, transparent));
 }
 
 .hex.placeable .hex-border {
-  background-color: rgba(255, 255, 255, 0.678);
+  /* Accent-colored border for placeable hexes - matches neighbor style */
+  background:
+    linear-gradient(165deg,
+      color-mix(in srgb, var(--accent-color, #74f2ff) 10%, #2e2e2e) 20%,
+      color-mix(in srgb, var(--accent-color, #74f2ff) 20%, #000000) 80%);
+}
 
+.hex.placeable .hex-core {
+  /* Radial glow on core for placeable hexes */
+  background:
+    radial-gradient(
+      circle at 45% 40%,
+      color-mix(in srgb, var(--accent-color, #74f2ff) 18%, transparent),
+      transparent 55%
+    ),
+    linear-gradient(145deg, var(--hex-core-a), var(--hex-core-b));
 }
 
 .hex.selected {
   z-index: 14;
   --hex-scale: 1.03;
+  /* Ensure selection never "sticks" via other state filters */
+  filter: none;
+}
+
+.hex.selected .hex-border {
+  /* Selected should read over ownership color */
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.16), rgba(0, 0, 0, 0.82)),
+    radial-gradient(
+      circle at 42% 36%,
+      color-mix(in srgb, var(--accent-color, #74f2ff) 80%, transparent),
+      transparent 68%
+    ),
+    linear-gradient(
+      0deg,
+      color-mix(in srgb, var(--accent-color, #74f2ff) 18%, transparent),
+      transparent 65%
+    ),
+    rgba(12, 15, 22, 0.96);
+}
+
+.hex.selected .hex-core {
+  /* Core highlight: cheap (only on selected tile) and reads clearly over ownership */
+  background:
+    radial-gradient(
+      circle at 42% 36%,
+      color-mix(in srgb, var(--accent-color, #74f2ff) 26%, transparent),
+      transparent 64%
+    ),
+    linear-gradient(165deg, var(--hex-core-a) 0%, var(--hex-core-b) 100%);
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--accent-color, #74f2ff) 30%, transparent);
 }
 
 /* Instant feedback on click - no waiting for React state */
 .hex:active {
   --hex-scale: 1.06;
-  filter: drop-shadow(0 8px 16px rgba(0, 0, 0, 0.3))
-          drop-shadow(0 0 14px rgba(255, 255, 255, 0.4));
+}
+
+.hex:active .hex-border {
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.18), rgba(0, 0, 0, 0.8)),
+    rgba(18, 22, 32, 0.98);
 }
 
 .hex::after {
   content: none;
 }
 
-.hex.origin::after {
-  content: "";
-  position: absolute;
-  inset: -50%;
-  clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%);
-  pointer-events: none;
-  z-index: 3;
-  background: conic-gradient(
-    from 0deg at 50% 50%,
-    transparent 0deg,
-    rgba(255, 255, 255, 0.2) 30deg,
-    transparent 60deg,
-    transparent 120deg,
-    rgba(255, 255, 255, 0.2) 150deg,
-    transparent 180deg,
-    transparent 240deg,
-    rgba(255, 255, 255, 0.2) 270deg,
-    transparent 300deg,
-    transparent 360deg
-  );
-  animation: origin-rotate 8s linear infinite;
-  opacity: 0.7;
-  mix-blend-mode: screen;
-}
-
-@keyframes origin-rotate {
-  0% {
-    transform: rotate(0deg);
-  }
-  100% {
-    transform: rotate(360deg);
-  }
-}
-
-
 .hex.powerup-target {
   z-index: 13;
-  background-color:  var(--powerup-color);
+}
+
+.hex.powerup-target .hex-border {
+  /* Border uses powerup color */
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.1), rgba(0, 0, 0, 0.4)),
+    linear-gradient(165deg,
+      color-mix(in srgb, var(--powerup-color, #74f2ff) 60%, #000) 0%,
+      color-mix(in srgb, var(--powerup-color, #74f2ff) 40%, #000) 100%);
+}
+
+.hex.powerup-target .hex-core {
+  /* Slightly brighter core - keeps tile color */
+  background: linear-gradient(165deg, var(--hex-core-a) 0%, var(--hex-core-b) 100%);
+  filter: brightness(1.15);
 }
 
 .hex.wormhole-from {
   z-index: 13;
-  filter: drop-shadow(0 8px 16px rgba(0, 0, 0, 0.3))
-          drop-shadow(0 0 14px rgba(255, 78, 214, 0.45));
 }
 
 .hex.wormhole-from .hex-border {
-  box-shadow:
-    inset 0 0 0 2px rgba(255, 78, 214, 0.85),
-    inset 0 0 26px rgba(0, 0, 0, 0.68),
-    0 0 18px rgba(255, 78, 214, 0.3);
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.14), rgba(0, 0, 0, 0.82)),
+    radial-gradient(circle at 40% 35%, rgba(255, 78, 214, 0.55), transparent 72%),
+    rgba(12, 15, 22, 0.96);
 }
 
 .hex.origin {
-  z-index: 13;
-  filter: drop-shadow(0 8px 16px rgba(0, 0, 0, 0.3))
-          drop-shadow(0 0 14px var(--accent-glow, rgba(116, 242, 255, 0.35)));
+  z-index: 15;
+}
+
+.hex.origin::before {
+  content: "";
+  position: absolute;
+  inset: -14%;
+  clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%);
+  pointer-events: none;
+  z-index: 0;
+  transform-origin: center;
+  background:
+    radial-gradient(
+      circle at 42% 36%,
+      color-mix(in srgb, var(--accent-color, #74f2ff) 55%, transparent),
+      transparent 60%
+    ),
+    radial-gradient(
+      circle at 50% 55%,
+      color-mix(in srgb, var(--accent-color, #74f2ff) 26%, transparent),
+      transparent 72%
+    );
+  opacity: 0;
+  will-change: transform, opacity;
+}
+
+.hex.origin:not(.selected) {
+  /* Origin glow - toned down */
+  filter:
+    drop-shadow(0 0 12px color-mix(in srgb, var(--accent-color, #74f2ff) 40%, transparent))
+    drop-shadow(0 0 24px color-mix(in srgb, var(--accent-color, #74f2ff) 18%, transparent));
 }
 
 .hex.origin .hex-border {
-  background: var(--accent-color, rgba(116, 242, 255, 0.85));
+  /* Pulsing border for origin tile */
+  background:
+    linear-gradient(145deg,
+      color-mix(in srgb, var(--accent-color) 35%, var(--hex-core-a)),
+      color-mix(in srgb, var(--accent-color) 65%, var(--hex-core-b)));
+
+  animation: origin-border-pulse 1s ease-in-out infinite;
 }
 
-.hex:not(.selected):hover {
+.hex.origin .hex-core {
+  background:
+    radial-gradient(
+      circle at 45% 40%,
+      color-mix(in srgb, var(--accent-color, #385e63) 40%, transparent),
+      transparent 55%
+    ),
+    linear-gradient(145deg,
+      color-mix(in srgb, var(--accent-color) 25%, var(--hex-core-a)),
+      color-mix(in srgb, var(--accent-color) 25%, var(--hex-core-b)));
+}
+
+
+/* Hover state - always brightens border, even on highlighted tiles */
+.hex:hover {
   --hex-scale: 1.02;
-  filter: drop-shadow(0 8px 16px rgba(0, 0, 0, 0.3))
-          drop-shadow(0 0 10px rgba(116, 242, 255, 0.18));
+}
+
+.hex:hover .hex-border {
+  filter: brightness(1.25);
+  box-shadow: 0 0 12px color-mix(in srgb, var(--accent-color, #74f2ff) 40%, transparent);
+}
+
+/* For non-highlighted tiles, also update the background */
+.hex:not(.selected):not(.origin):not(.neighbor):not(.powerup-target):not(.placeable):hover .hex-border {
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.18), rgba(0, 0, 0, 0.75)),
+    rgba(16, 20, 28, 0.98);
 }
 
 .hex-value {
@@ -1378,7 +1453,8 @@ button:disabled {
   letter-spacing: 0.02em;
   line-height: 1;
   z-index: 6;
-  text-shadow: 0 6px 12px rgba(0, 0, 0, 0.4);
+  /* Simpler text shadow */
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.5);
   user-select: none;
   cursor: default;
 }
@@ -1401,11 +1477,9 @@ button:disabled {
 .hex-tier span {
   width: 12px;
   height: 9px;
-  background: rgba(255, 255, 255, 0.22);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.26), rgba(255, 255, 255, 0.12));
   clip-path: polygon(0 0, 50% 60%, 100% 0, 100% 28%, 50% 88%, 0 28%);
-  box-shadow:
-    0 0 10px rgba(0, 0, 0, 0.5),
-    0 0 10px rgba(116, 242, 255, 0.08);
+  box-shadow: none;
 }
 
 .hex-tier span + span {
@@ -1417,25 +1491,18 @@ button:disabled {
 }
 
 .hex-tier.tier-1 span {
-  background: rgba(235, 235, 235, 0.28);
-  box-shadow:
-    0 0 10px rgba(0, 0, 0, 0.5),
-    0 0 12px rgba(255, 255, 255, 0.1);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.34), rgba(255, 255, 255, 0.16));
+  box-shadow: none;
 }
 
 .hex-tier.tier-2 span {
-  background: linear-gradient(140deg, rgba(255, 217, 61, 0.9), rgba(191, 121, 58, 0.85));
-  box-shadow:
-    0 0 10px rgba(0, 0, 0, 0.5),
-    0 0 18px rgba(255, 217, 61, 0.22),
-    0 0 16px rgba(191, 121, 58, 0.18);
+  background: linear-gradient(140deg, rgba(255, 217, 61, 0.78), rgba(191, 121, 58, 0.62));
+  box-shadow: none;
 }
 
 .hex-tier.tier-3 span {
-  background: linear-gradient(120deg, rgba(116, 242, 255, 0.9), rgba(208, 92, 255, 0.8));
-  box-shadow:
-    0 0 10px rgba(0, 0, 0, 0.5),
-    0 0 16px rgba(116, 242, 255, 0.3);
+  background: linear-gradient(120deg, rgba(116, 242, 255, 0.75), rgba(208, 92, 255, 0.6));
+  box-shadow: none;
 }
 
 .hex-resources {
@@ -1448,16 +1515,16 @@ button:disabled {
   justify-content: center;
   gap: 4px;
   z-index: 4;
-  opacity: 0.95;
+  opacity: 0.82;
 }
 
 .hex-res {
   position: relative;
-  width:4px;
+  width: 4px;
   height: 22px;
-  border-radius: 0;
+  border-radius: 1px;
   overflow: hidden;
-  background: rgba(255, 255, 255, 0.02);
+  background: rgba(255, 255, 255, 0.03);
 }
 
 .hex-res::before {
@@ -1467,16 +1534,10 @@ button:disabled {
   width: 100%;
   transform-origin: center bottom;
   transform: scaleY(var(--fill, 0));
-  background: var(--res-color, rgba(255, 255, 255, 0.5));
-  filter: drop-shadow(0 0 10px color-mix(in srgb, var(--res-color) 35%, transparent));
-}
-
-.hex-res::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  opacity: 0.7;
-  pointer-events: none;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.22), rgba(0, 0, 0, 0.18)),
+    var(--res-color, rgba(255, 255, 255, 0.5));
+  opacity: 0.8;
 }
 
 .hex-res.res-fusion {

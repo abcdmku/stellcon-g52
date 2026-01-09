@@ -74,7 +74,7 @@ async function run() {
   const page = await browser.newPage();
   await page.setViewport({ width: viewport.width, height: viewport.height, deviceScaleFactor: 1 });
 
-  await page.goto(`http://localhost:${port}/index.html?demo=1`, { waitUntil: "networkidle0" });
+  await page.goto(`http://localhost:${port}/index.html?demo=1`, { waitUntil: "domcontentloaded", timeout: 60000 });
   await page.waitForSelector(".board", { timeout: 20000 });
   await new Promise((resolve) => setTimeout(resolve, 800));
 
