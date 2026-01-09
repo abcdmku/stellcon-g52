@@ -1240,15 +1240,6 @@ const Board = memo(function Board({
               }}
               role="button"
             >
-              {queuedBadges.length ? (
-                <div className="hex-powerup-badges" aria-label="Queued powerups">
-                  {queuedBadges.map((type) => (
-                    <div key={`${system.id}-queued-${type}`} className={`hex-powerup-badge badge-${type}`}>
-                      <PowerupIcon type={type} size={14} />
-                    </div>
-                  ))}
-                </div>
-              ) : null}
               {fx.length ? (
                 <div className="hex-fx" aria-hidden="true">
                   {fx.map((entry) => (
@@ -1262,10 +1253,21 @@ const Board = memo(function Board({
               <div className="hex-border" />
               <div className="hex-core" />
               <div className="hex-value">{displayedFleets}</div>
-              <div className={`hex-tier tier-${system.tier ?? 0}`} aria-label={`Tier ${system.tier ?? 0}`}>
-                {Array.from({ length: system.tier ?? 0 }).map((_, index) => (
-                  <span key={`tier-${system.id}-${index}`} />
-                ))}
+              <div className="hex-tier-row">
+                <div className={`hex-tier tier-${system.tier ?? 0}`} aria-label={`Tier ${system.tier ?? 0}`}>
+                  {Array.from({ length: system.tier ?? 0 }).map((_, index) => (
+                    <span key={`tier-${system.id}-${index}`} />
+                  ))}
+                </div>
+                {queuedBadges.length ? (
+                  <div className="hex-powerup-badges" aria-label="Queued powerups">
+                    {queuedBadges.map((type) => (
+                      <div key={`${system.id}-queued-${type}`} className={`hex-powerup-badge badge-${type}`}>
+                        <PowerupIcon type={type} size={12} />
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
               </div>
               <div className="hex-resources" aria-label="Resources">
                 {RESOURCE_TYPES.map((key) => {

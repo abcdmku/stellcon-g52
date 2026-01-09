@@ -7,6 +7,7 @@ type OrdersAction =
   | { type: "replace"; orders: Orders }
   | { type: "placement"; systemId: string; delta: number; fleetsToPlace: number }
   | { type: "queuePowerup"; powerup: Exclude<PowerupKey, "wormhole">; targetId: string }
+  | { type: "removePowerup"; powerup: PowerupKey }
   | { type: "queueWormhole"; fromId: string; toId: string }
   | { type: "queueMove"; fromId: string; toId: string; originFleets: number }
   | { type: "removeMove"; index: number }
@@ -39,6 +40,11 @@ function ordersReducer(state: Orders, action: OrdersAction): Orders {
       return {
         ...state,
         powerups: [...state.powerups, { type: action.powerup, targetId: action.targetId }],
+      };
+    case "removePowerup":
+      return {
+        ...state,
+        powerups: state.powerups.filter((entry) => entry.type !== action.powerup),
       };
     case "queueWormhole": {
       const nextPowerups = state.powerups.filter(
@@ -113,6 +119,9 @@ export function useOrders(initialOrders: Orders) {
   const queuePowerup = useCallback((powerup: Exclude<PowerupKey, "wormhole">, targetId: string) => {
     dispatch({ type: "queuePowerup", powerup, targetId });
   }, []);
+  const removePowerup = useCallback((powerup: PowerupKey) => {
+    dispatch({ type: "removePowerup", powerup });
+  }, []);
   const queueWormhole = useCallback((fromId: string, toId: string) => {
     dispatch({ type: "queueWormhole", fromId, toId });
   }, []);
@@ -130,6 +139,7 @@ export function useOrders(initialOrders: Orders) {
     replaceOrders,
     applyPlacement,
     queuePowerup,
+    removePowerup,
     queueWormhole,
     queueMove,
     removeMove,

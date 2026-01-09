@@ -487,10 +487,10 @@ button:disabled {
   top: 50%;
   transform-origin: center;
   --hex-raster-z: 0px;
-  /* GPU acceleration for smooth pan/zoom */
-  will-change: transform;
-  backface-visibility: hidden;
-  contain: layout style;
+  /* Preserve 3D to prevent flattening/rasterization when zooming */
+  transform-style: preserve-3d;
+  /* Remove backface-visibility which forces rasterization */
+  -webkit-font-smoothing: subpixel-antialiased;
 }
 
 .board-links {
@@ -501,6 +501,9 @@ button:disabled {
   height: 4400px;
   pointer-events: none;
   z-index: 60;
+  /* Prevent pixelation when zooming - use 3D transform */
+  transform: translateZ(0);
+  transform-style: preserve-3d;
 }
 
 .board-links * {
@@ -515,30 +518,30 @@ button:disabled {
 }
 
 .wormhole-line {
-  stroke: rgba(255, 78, 214, 0.5);
-  stroke-width: 3.5;
+  stroke: rgba(255, 78, 214, 0.45);
+  stroke-width: 3;
   stroke-linecap: round;
-  filter: drop-shadow(0 0 10px rgba(255, 78, 214, 0.28));
+  filter: drop-shadow(0 0 6px rgba(255, 78, 214, 0.2));
 }
 
 .wormhole-line.dashed {
-  stroke-dasharray: 10 10;
+  stroke-dasharray: 8 12;
 }
 
 .wormhole-line-pulse {
-  stroke: rgba(255, 78, 214, 0.95);
-  stroke-width: 5;
+  stroke: rgba(255, 78, 214, 0.6);
+  stroke-width: 3;
   stroke-linecap: round;
-  stroke-dasharray: 2 16;
-  opacity: 0.9;
-  animation: wormhole-flow 0.85s linear infinite;
-  filter: drop-shadow(0 0 16px rgba(255, 78, 214, 0.38));
+  stroke-dasharray: 4 20;
+  opacity: 0.7;
+  animation: wormhole-flow 3s linear infinite;
+  filter: drop-shadow(0 0 8px rgba(255, 78, 214, 0.25));
 }
 
 .wormhole-line-pulse.dashed {
-  stroke-dasharray: 6 12;
-  animation-duration: 1.05s;
-  opacity: 0.65;
+  stroke-dasharray: 6 18;
+  animation-duration: 3.5s;
+  opacity: 0.5;
 }
 
 .move-line-base,
@@ -716,7 +719,7 @@ button:disabled {
     stroke-dashoffset: 0;
   }
   100% {
-    stroke-dashoffset: -22;
+    stroke-dashoffset: -24;
   }
 }
 
@@ -1097,8 +1100,8 @@ button:disabled {
   cursor: pointer;
   user-select: none;
   z-index: 10;
-  /* No filter - much faster rendering */
-  contain: layout style paint;
+  /* Preserve 3D to prevent rasterization */
+  transform-style: preserve-3d;
 }
 
 .hex-border {
@@ -1239,30 +1242,27 @@ button:disabled {
 }
 
 .hex.neighbor {
-  /* Subtle glow to indicate reachable movement tiles */
-  filter:
-    drop-shadow(0 0 6px color-mix(in srgb, var(--accent-color, #74f2ff) 20%, transparent));
+  /* Reachability cue without per-tile filters (keeps perf predictable) */
+  filter: none;
 }
 
 .hex.neighbor .hex-border {
-  /* Subtle highlight - keeps tile color but adds accent glow */
+  /* Subtle glow border to indicate reachable neighbor */
   background:
-    linear-gradient(165deg,
-      color-mix(in srgb, var(--accent-color, #385e63) 10%, #2e2e2e) 20%,
-      color-mix(in srgb, var(--accent-color, #385e63) 20%, #000000) 80%)
+    linear-gradient(145deg, rgba(255, 255, 255, 0.14), rgba(0, 0, 0, 0.82)),
+    radial-gradient(circle at 40% 35%, color-mix(in srgb, var(--accent-color, #74f2ff) 64%, transparent), transparent 70%),
+    rgba(12, 15, 22, 0.96);
 }
 
 .hex.neighbor .hex-core {
-  /* Subtle radial glow on core */
+  /* Slight core lift for reachability without overpowering ownership tint */
   background:
     radial-gradient(
-      circle at 45% 40%,
-      color-mix(in srgb, var(--accent-color, #74f2ff) 18%, transparent),
-      transparent 55%
+      circle at 42% 36%,
+      color-mix(in srgb, var(--accent-color, #74f2ff) 14%, transparent),
+      transparent 64%
     ),
-    linear-gradient(145deg,
-      color-mix(in srgb, var(--accent-color) 0%, var(--hex-core-a)),
-      color-mix(in srgb, var(--accent-color) 1%, var(--hex-core-b)));
+    linear-gradient(165deg, var(--hex-core-a) 0%, var(--hex-core-b) 100%);
 }
 
 .hex.placeable {
@@ -1459,18 +1459,24 @@ button:disabled {
   cursor: default;
 }
 
-.hex-tier {
+.hex-tier-row {
   position: absolute;
   top: 12px;
   left: 50%;
   transform: translateX(-50%);
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+  z-index: 4;
+}
+
+.hex-tier {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: flex-end;
   height: 18px;
   gap: 0;
-  z-index: 4;
   opacity: 0.95;
 }
 
@@ -1566,27 +1572,16 @@ button:disabled {
 }
 
 .hex-powerup-badges {
-  position: absolute;
-  top: 32px;
-  left: 50%;
-  transform: translateX(-50%);
   display: flex;
-  gap: 6px;
-  z-index: 7;
+  gap: 2px;
   pointer-events: none;
 }
 
 .hex-powerup-badge {
-  width: 20px;
-  height: 20px;
+  width: 14px;
+  height: 14px;
   display: grid;
   place-items: center;
-  color: rgba(255, 255, 255, 0.92);
-  background: rgba(10, 14, 24, 0.58);
-  border-radius: 7px;
-  box-shadow:
-    inset 0 0 0 1px rgba(255, 255, 255, 0.14),
-    0 0 14px rgba(0, 0, 0, 0.45);
 }
 
 .hex-powerup-badge svg {
@@ -1594,27 +1589,19 @@ button:disabled {
 }
 
 .hex-powerup-badge.badge-stellarBomb {
-  box-shadow:
-    inset 0 0 0 1px rgba(255, 110, 110, 0.2),
-    0 0 16px rgba(255, 86, 86, 0.18);
+  color: #ff6e6e;
 }
 
 .hex-powerup-badge.badge-terraform {
-  box-shadow:
-    inset 0 0 0 1px rgba(108, 247, 178, 0.18),
-    0 0 16px rgba(108, 247, 178, 0.14);
+  color: #6cf7b2;
 }
 
 .hex-powerup-badge.badge-defenseNet {
-  box-shadow:
-    inset 0 0 0 1px rgba(163, 211, 255, 0.18),
-    0 0 16px rgba(163, 211, 255, 0.14);
+  color: #a3d3ff;
 }
 
 .hex-powerup-badge.badge-wormhole {
-  box-shadow:
-    inset 0 0 0 1px rgba(255, 78, 214, 0.2),
-    0 0 16px rgba(255, 78, 214, 0.18);
+  color: #ff4ed6;
 }
 
 .hex-shield {
@@ -2011,6 +1998,20 @@ button:disabled {
   box-shadow:
     0 0 0 1px color-mix(in srgb, var(--res-color) 50%, transparent),
     0 0 18px color-mix(in srgb, var(--res-color) 55%, transparent);
+}
+
+.powerup-grid button.placed {
+  border-color: color-mix(in srgb, var(--res-color) 50%, rgba(255, 255, 255, 0.2));
+  background:
+    radial-gradient(circle at 30% 30%, color-mix(in srgb, var(--res-color) 20%, transparent), transparent 55%),
+    rgba(18, 26, 40, 0.92);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--res-color) 35%, transparent),
+    0 0 12px color-mix(in srgb, var(--res-color) 30%, transparent);
+}
+
+.powerup-grid button.placed .cost {
+  color: var(--res-color);
 }
 
 .powerup-grid button:disabled {

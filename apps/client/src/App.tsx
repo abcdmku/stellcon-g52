@@ -305,7 +305,7 @@ function App() {
   const [endgameStatsTab, setEndgameStatsTab] = useState<EndgameStatsTabId>("fleetProduction");
   const [endgameStatsToastDismissed, setEndgameStatsToastDismissed] = useState(false);
   const [endgameTurnHistory, setEndgameTurnHistory] = useState<EndgameTurnSnapshot[]>([]);
-  const { orders, resetOrders, replaceOrders, applyPlacement, queuePowerup, queueWormhole, queueMove, removeMove, adjustMove } =
+  const { orders, resetOrders, replaceOrders, applyPlacement, queuePowerup, removePowerup, queueWormhole, queueMove, removeMove, adjustMove } =
     useOrders(DEMO_MODE ? (demoState.players[demoPlayerId].orders as Orders) : emptyOrders());
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [moveOriginId, setMoveOriginId] = useState<string | null>(null);
@@ -1377,6 +1377,7 @@ function App() {
   const trimmedJoinName = joinName.trim().replace(/\s+/g, " ");
   const isJoinNameValid = trimmedJoinName.length >= 2;
   const isJoinNameUnique = !existingNames.includes(trimmedJoinName.toLowerCase());
+  const isJoinNameReady = isJoinNameValid && isJoinNameUnique;
   const canJoinGame = showJoinPrompt && !playerId && availableColors.length > 0 && players.length < state.config.maxPlayers;
 
   // Show lobby with waiting overlay while waiting for players
@@ -1467,52 +1468,56 @@ function App() {
                   <span className="join-prompt-name-error">Name already taken</span>
                 ) : null}
               </label>
-              <div className="join-prompt-label">
-                Select Color
-                <div className="join-prompt-colors">
-                  {availableColors.map((c) => (
-                    <button
-                      key={c}
-                      type="button"
-                      className={`join-prompt-color ${joinColor === c ? "active" : ""}`}
-                      style={{ "--swatch-color": c } as React.CSSProperties}
-                      onClick={() => setJoinColor(c)}
-                      aria-label={`Color ${c}`}
-                    />
-                  ))}
+              {isJoinNameReady ? (
+                <div className="join-prompt-label">
+                  Select Color
+                  <div className="join-prompt-colors">
+                    {availableColors.map((c) => (
+                      <button
+                        key={c}
+                        type="button"
+                        className={`join-prompt-color ${joinColor === c ? "active" : ""}`}
+                        style={{ "--swatch-color": c } as React.CSSProperties}
+                        onClick={() => setJoinColor(c)}
+                        aria-label={`Color ${c}`}
+                      />
+                    ))}
+                  </div>
                 </div>
-              </div>
+              ) : null}
               <div className="join-prompt-actions">
-                <button
-                  type="button"
-                  disabled={!isJoinNameValid || !isJoinNameUnique || !joinColor}
-                  onClick={() => {
-                    if (!isJoinNameValid || !isJoinNameUnique || !joinColor || !gameId) return;
-                    window.localStorage.setItem("stellcon.name", joinName);
-                    window.localStorage.setItem("stellcon.color", joinColor);
-                    joinGame({ name: trimmedJoinName, gameId, color: joinColor }, (response) => {
-                      if (!response) {
-                        setJoinError("No response from server.");
-                        return;
-                      }
-                      if ("error" in response) {
-                        setJoinError(response.error);
-                        return;
-                      }
-                      setPlayerId(response.playerId);
-                      setShowJoinPrompt(false);
-                      setJoinError("");
-                      resetOrders();
-                      setSelectedId(null);
-                      window.localStorage.setItem(
-                        "stellcon.session",
-                        JSON.stringify({ gameId: response.gameId, playerId: response.playerId })
-                      );
-                    });
-                  }}
-                >
-                  Join Game
-                </button>
+                {isJoinNameReady ? (
+                  <button
+                    type="button"
+                    disabled={!joinColor}
+                    onClick={() => {
+                      if (!joinColor || !gameId) return;
+                      window.localStorage.setItem("stellcon.name", joinName);
+                      window.localStorage.setItem("stellcon.color", joinColor);
+                      joinGame({ name: trimmedJoinName, gameId, color: joinColor }, (response) => {
+                        if (!response) {
+                          setJoinError("No response from server.");
+                          return;
+                        }
+                        if ("error" in response) {
+                          setJoinError(response.error);
+                          return;
+                        }
+                        setPlayerId(response.playerId);
+                        setShowJoinPrompt(false);
+                        setJoinError("");
+                        resetOrders();
+                        setSelectedId(null);
+                        window.localStorage.setItem(
+                          "stellcon.session",
+                          JSON.stringify({ gameId: response.gameId, playerId: response.playerId })
+                        );
+                      });
+                    }}
+                  >
+                    Join Game
+                  </button>
+                ) : null}
                 <button type="button" className="secondary" onClick={() => setShowJoinPrompt(false)}>
                   Watch Only
                 </button>
@@ -1675,52 +1680,56 @@ function App() {
                 <span className="join-prompt-name-error">Name already taken</span>
               ) : null}
             </label>
-            <div className="join-prompt-label">
-              Select Color
-              <div className="join-prompt-colors">
-                {availableColors.map((c) => (
-                  <button
-                    key={c}
-                    type="button"
-                    className={`join-prompt-color ${joinColor === c ? "active" : ""}`}
-                    style={{ "--swatch-color": c } as React.CSSProperties}
-                    onClick={() => setJoinColor(c)}
-                    aria-label={`Color ${c}`}
-                  />
-                ))}
+            {isJoinNameReady ? (
+              <div className="join-prompt-label">
+                Select Color
+                <div className="join-prompt-colors">
+                  {availableColors.map((c) => (
+                    <button
+                      key={c}
+                      type="button"
+                      className={`join-prompt-color ${joinColor === c ? "active" : ""}`}
+                      style={{ "--swatch-color": c } as React.CSSProperties}
+                      onClick={() => setJoinColor(c)}
+                      aria-label={`Color ${c}`}
+                    />
+                  ))}
+                </div>
               </div>
-            </div>
+            ) : null}
             <div className="join-prompt-actions">
-              <button
-                type="button"
-                disabled={!isJoinNameValid || !isJoinNameUnique || !joinColor}
-                onClick={() => {
-                  if (!isJoinNameValid || !isJoinNameUnique || !joinColor || !gameId) return;
-                  window.localStorage.setItem("stellcon.name", joinName);
-                  window.localStorage.setItem("stellcon.color", joinColor);
-                  joinGame({ name: trimmedJoinName, gameId, color: joinColor }, (response) => {
-                    if (!response) {
-                      setJoinError("No response from server.");
-                      return;
-                    }
-                    if ("error" in response) {
-                      setJoinError(response.error);
-                      return;
-                    }
-                    setPlayerId(response.playerId);
-                    setShowJoinPrompt(false);
-                    setJoinError("");
-                    resetOrders();
-                    setSelectedId(null);
-                    window.localStorage.setItem(
-                      "stellcon.session",
-                      JSON.stringify({ gameId: response.gameId, playerId: response.playerId })
-                    );
-                  });
-                }}
-              >
-                Join Game
-              </button>
+              {isJoinNameReady ? (
+                <button
+                  type="button"
+                  disabled={!joinColor}
+                  onClick={() => {
+                    if (!joinColor || !gameId) return;
+                    window.localStorage.setItem("stellcon.name", joinName);
+                    window.localStorage.setItem("stellcon.color", joinColor);
+                    joinGame({ name: trimmedJoinName, gameId, color: joinColor }, (response) => {
+                      if (!response) {
+                        setJoinError("No response from server.");
+                        return;
+                      }
+                      if ("error" in response) {
+                        setJoinError(response.error);
+                        return;
+                      }
+                      setPlayerId(response.playerId);
+                      setShowJoinPrompt(false);
+                      setJoinError("");
+                      resetOrders();
+                      setSelectedId(null);
+                      window.localStorage.setItem(
+                        "stellcon.session",
+                        JSON.stringify({ gameId: response.gameId, playerId: response.playerId })
+                      );
+                    });
+                  }}
+                >
+                  Join Game
+                </button>
+              ) : null}
               <button type="button" className="secondary" onClick={() => setShowJoinPrompt(false)}>
                 Watch Only
               </button>
@@ -1857,26 +1866,37 @@ function App() {
                   const points = Number(me?.research?.[powerup.resource] || 0);
                   const ratio = clamp(points / powerup.cost, 0, 1);
                   const canUse = !!playerId && state.phase === "planning" && points >= powerup.cost;
+                  const isPlaced = orders.powerups.some((p) => p.type === powerup.key);
                   return (
                     <div key={powerup.key} className="powerup-row">
                       <button
                         type="button"
-                        className={`${powerupDraft === powerup.key ? "active" : ""} ${canUse ? "available" : ""}`}
+                        className={`${powerupDraft === powerup.key ? "active" : ""} ${canUse && !isPlaced ? "available" : ""} ${isPlaced ? "placed" : ""}`}
                         disabled={!playerId || state.phase !== "planning"}
                         onClick={() => {
                           setPlacementMode(false);
                           setMoveOriginId(null);
                           setSelectedId(null);
                           setWormholeFromId(null);
-                          setPowerupDraft((current) => (current === powerup.key ? "" : powerup.key));
+                          if (isPlaced) {
+                            // Remove the placed powerup
+                            removePowerup(powerup.key);
+                            setPowerupDraft("");
+                          } else if (powerupDraft === powerup.key) {
+                            // Cancel draft mode
+                            setPowerupDraft("");
+                          } else if (canUse) {
+                            // Start placing this powerup
+                            setPowerupDraft(powerup.key);
+                          }
                         }}
-                        aria-label={`${powerup.label}: ${points}/${powerup.cost} ${resourceLabels[powerup.resource]}`}
-                        title={`${powerup.label}: ${points}/${powerup.cost} ${resourceLabels[powerup.resource]}`}
+                        aria-label={`${powerup.label}: ${isPlaced ? "Placed (click to remove)" : `${points}/${powerup.cost} ${resourceLabels[powerup.resource]}`}`}
+                        title={`${powerup.label}: ${isPlaced ? "Placed (click to remove)" : `${points}/${powerup.cost} ${resourceLabels[powerup.resource]}`}`}
                         style={{ "--res-color": RESOURCE_COLORS[powerup.resource] || "rgba(255,255,255,0.6)" }}
                       >
                         <span className="powerup-label">{powerup.label}</span>
                         <span className="cost">
-                          {canUse ? "Ready" : `${powerup.cost} ${resourceLabels[powerup.resource]}`}
+                          {isPlaced ? "Placed" : canUse ? "Ready" : `${powerup.cost} ${resourceLabels[powerup.resource]}`}
                         </span>
                         <span className="powerup-progress" aria-label={`${powerup.label} resource progress`}>
                           <span className="powerup-progress-track" aria-hidden="true">
