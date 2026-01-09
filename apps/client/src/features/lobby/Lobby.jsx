@@ -1,11 +1,11 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { MAP_SIZES, PLAYER_COLORS } from "@stellcon/shared";
 import GamesList from "./GamesList.jsx";
 
-export default function Lobby({ onCreate, onJoin, onWatch, isBusy, games }) {
+export default function Lobby({ onCreate, onJoin, onWatch, isBusy, games, name: controlledName, color: controlledColor, onNameChange, onColorChange }) {
   const [mode, setMode] = useState("join");
-  const [name, setName] = useState(() => window.localStorage.getItem("stellcon.name") || "");
-  const [color, setColor] = useState(() => window.localStorage.getItem("stellcon.color") || PLAYER_COLORS[0]);
+  const [uncontrolledName, setUncontrolledName] = useState(() => window.localStorage.getItem("stellcon.name") || "");
+  const [uncontrolledColor, setUncontrolledColor] = useState(() => window.localStorage.getItem("stellcon.color") || PLAYER_COLORS[0]);
   const [joinColors, setJoinColors] = useState({});
   const [maxPlayers, setMaxPlayers] = useState(2);
   const [mapSize, setMapSize] = useState("medium");
@@ -13,58 +13,25 @@ export default function Lobby({ onCreate, onJoin, onWatch, isBusy, games }) {
   const [maxTurns, setMaxTurns] = useState(20);
   const [turnSeconds, setTurnSeconds] = useState(90);
 
+  const name = controlledName ?? uncontrolledName;
+  const color = controlledColor ?? uncontrolledColor;
+
   const trimmedName = name.trim().replace(/\s+/g, " ");
   const nameValid = trimmedName.length >= 2;
 
-  useEffect(() => {
-    window.localStorage.setItem("stellcon.name", name);
-  }, [name]);
+  const setNameValue = (nextName) => {
+    if (controlledName == null) setUncontrolledName(nextName);
+    window.localStorage.setItem("stellcon.name", nextName);
+    onNameChange?.(nextName);
+  };
 
-  useEffect(() => {
-    window.localStorage.setItem("stellcon.color", color);
-  }, [color]);
-
-  useEffect(() => {
-    if (mode !== "join") return;
-    setJoinColors((current) => {
-      const next = { ...current };
-      let changed = false;
-
-      const gameIds = new Set((games || []).map((game) => game.gameId));
-      for (const existing of Object.keys(next)) {
-        if (!gameIds.has(existing)) {
-          delete next[existing];
-          changed = true;
-        }
-      }
-
-      for (const game of games || []) {
-        const available = Array.isArray(game.availableColors) ? game.availableColors : PLAYER_COLORS;
-        const selected = next[game.gameId];
-        const fallback = available.includes(color) ? color : available[0];
-
-        if (!selected && fallback) {
-          next[game.gameId] = fallback;
-          changed = true;
-          continue;
-        }
-
-        if (selected && !available.includes(selected)) {
-          if (fallback) {
-            next[game.gameId] = fallback;
-          } else {
-            delete next[game.gameId];
-          }
-          changed = true;
-        }
-      }
-
-      return changed ? next : current;
-    });
-  }, [color, games, mode]);
+  const setColorValue = (nextColor) => {
+    if (controlledColor == null) setUncontrolledColor(nextColor);
+    window.localStorage.setItem("stellcon.color", nextColor);
+    onColorChange?.(nextColor);
+  };
 
   const handleJoinColorPick = (gameId, nextColor) => {
-    setColor(nextColor);
     setJoinColors((current) => ({ ...current, [gameId]: nextColor }));
   };
 
@@ -89,21 +56,23 @@ export default function Lobby({ onCreate, onJoin, onWatch, isBusy, games }) {
         <label className="name-row">
           Commander Name (unique per game)
           <div className="name-input-row">
-            <input value={name} onChange={(event) => setName(event.target.value)} placeholder="Commander" />
-            <div className="color-row-inline" role="listbox" aria-label="Player color">
-              {PLAYER_COLORS.map((value) => (
-                <button
-                  key={value}
-                  type="button"
-                  className={`color-hex ${color === value ? "active" : ""}`}
-                  style={{ "--swatch-color": value }}
-                  onClick={() => setColor(value)}
-                  aria-label={`Color ${value}`}
-                  aria-selected={color === value}
-                  role="option"
-                />
-              ))}
-            </div>
+            <input value={name} onChange={(event) => setNameValue(event.target.value)} placeholder="Commander" />
+            {mode === "create" ? (
+              <div className="color-row-inline" role="listbox" aria-label="Player color">
+                {PLAYER_COLORS.map((value) => (
+                  <button
+                    key={value}
+                    type="button"
+                    className={`color-hex ${color === value ? "active" : ""}`}
+                    style={{ "--swatch-color": value }}
+                    onClick={() => setColorValue(value)}
+                    aria-label={`Color ${value}`}
+                    aria-selected={color === value}
+                    role="option"
+                  />
+                ))}
+              </div>
+            ) : null}
           </div>
         </label>
       </div>

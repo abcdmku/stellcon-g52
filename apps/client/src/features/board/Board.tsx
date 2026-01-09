@@ -1,6 +1,6 @@
 import type { CSSProperties, MouseEvent } from "react";
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { clamp, RESOLUTION_TRAVEL_MS, RESOURCE_COLORS, RESOURCE_TYPES } from "@stellcon/shared";
+import { clamp, RESOLUTION_TRAVEL_MS, RESOURCE_TYPES } from "@stellcon/shared";
 import type { GameState, Orders, PowerupKey, SystemState, WormholeLink } from "@stellcon/shared";
 import { PowerupIcon } from "../../shared/components/PowerupIcon";
 import { hexToRgba } from "../../shared/lib/color";
@@ -32,15 +32,6 @@ function hexToRgb(hexColor: string): Rgb | null {
   const b = Number.parseInt(hex.slice(4, 6), 16);
   if (Number.isNaN(r) || Number.isNaN(g) || Number.isNaN(b)) return null;
   return { r, g, b };
-}
-
-function mixRgb(a: Rgb, b: Rgb, t: number): Rgb {
-  const k = clamp(t, 0, 1);
-  return {
-    r: Math.round(a.r + (b.r - a.r) * k),
-    g: Math.round(a.g + (b.g - a.g) * k),
-    b: Math.round(a.b + (b.b - a.b) * k),
-  };
 }
 
 function rgbToHsl(rgb: Rgb) {
@@ -1206,14 +1197,11 @@ const Board = memo(function Board({
           }
           const queuedBadges = queuedPowerupsBySystemId.get(system.id) || [];
           const fx = (powerupFxBySystemId.get(system.id) || []).filter((entry) => entry.type !== "stellarBomb");
-          const shouldTintCore = Boolean(owner?.color) || system.terraformed;
-          const baseRgb = owner?.color ? getRgb(owner.color) : { r: 42, g: 50, b: 66 };
-          const terrainRgb = system.terraformed ? getRgb(RESOURCE_COLORS.terrain) : null;
+          const shouldTintCore = Boolean(owner?.color);
+          const baseRgb = owner?.color ? getRgb(owner.color) : null;
           let core = null;
           if (shouldTintCore && baseRgb) {
-            let next = baseRgb;
-            if (terrainRgb) next = mixRgb(next, terrainRgb, 0.18);
-            core = deriveCoreGradient(next);
+            core = deriveCoreGradient(baseRgb);
           }
 
           const style = {

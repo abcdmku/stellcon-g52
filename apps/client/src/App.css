@@ -487,10 +487,6 @@ button:disabled {
   top: 50%;
   transform-origin: center;
   --hex-raster-z: 0px;
-  /* Preserve 3D to prevent flattening/rasterization when zooming */
-  transform-style: preserve-3d;
-  /* Remove backface-visibility which forces rasterization */
-  -webkit-font-smoothing: subpixel-antialiased;
 }
 
 .board-links {
@@ -501,9 +497,6 @@ button:disabled {
   height: 4400px;
   pointer-events: none;
   z-index: 60;
-  /* Prevent pixelation when zooming - use 3D transform */
-  transform: translateZ(0);
-  transform-style: preserve-3d;
 }
 
 .board-links * {
@@ -1092,7 +1085,7 @@ button:disabled {
   /* Default (neutral) tile body */
   --hex-core-a: #252a31;
   --hex-core-b: #15161d;
-  transform: translate3d(-50%, -50%, var(--hex-raster-z)) scale(var(--hex-scale));
+  transform: translate(-50%, -50%) scale(var(--hex-scale));
   clip-path: polygon(25% 0%, 75% 0%, 100% 50%, 75% 100%, 25% 100%, 0 50%);
   display: flex;
   align-items: center;
@@ -1100,8 +1093,6 @@ button:disabled {
   cursor: pointer;
   user-select: none;
   z-index: 10;
-  /* Preserve 3D to prevent rasterization */
-  transform-style: preserve-3d;
 }
 
 .hex-border {
@@ -1124,6 +1115,7 @@ button:disabled {
   z-index: 1;
   /* Single-pass paint for performance */
   background: linear-gradient(165deg, var(--hex-core-a) 0%, var(--hex-core-b) 100%);
+  filter: none;
 }
 
 /* Removed hex-core::after - expensive gradients and blend mode */
@@ -1439,12 +1431,6 @@ button:disabled {
   box-shadow: 0 0 12px color-mix(in srgb, var(--accent-color, #74f2ff) 40%, transparent);
 }
 
-/* For non-highlighted tiles, also update the background */
-.hex:not(.selected):not(.origin):not(.neighbor):not(.powerup-target):not(.placeable):hover .hex-border {
-  background:
-    linear-gradient(145deg, rgba(255, 255, 255, 0.18), rgba(0, 0, 0, 0.75)),
-    rgba(16, 20, 28, 0.98);
-}
 
 .hex-value {
   position: relative;

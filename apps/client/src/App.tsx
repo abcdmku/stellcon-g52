@@ -1,3 +1,4 @@
+import type { CSSProperties } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { buildConnectedComponentIndex, computeIncome, inSameConnectedComponent, PLAYER_COLORS, POWERUPS, RESOURCE_COLORS, RESOURCE_TYPES, RESOLUTION_TRAVEL_MS } from "@stellcon/shared";
 import type { GameListItem, GameState, Orders, PowerupKey } from "@stellcon/shared";
@@ -340,6 +341,12 @@ function App() {
     return (PLAYER_COLORS as readonly string[]).includes(stored) ? (stored as PlayerColor) : "";
   });
   const [joinError, setJoinError] = useState("");
+  const [profilePromptTouched, setProfilePromptTouched] = useState(false);
+  const [isLobbyUnlocked, setIsLobbyUnlocked] = useState(() => {
+    if (DEMO_MODE) return true;
+    const stored = window.localStorage.getItem("stellcon.name") || "";
+    return stored.trim().replace(/\s+/g, " ").length >= 2;
+  });
 
   const handleGameState = useCallback(
     (gameState: GameState) => {
@@ -462,6 +469,15 @@ function App() {
       powerupFxTimeoutRef.current = [];
     };
   }, []);
+
+  useEffect(() => {
+    window.localStorage.setItem("stellcon.name", joinName);
+  }, [joinName]);
+
+  useEffect(() => {
+    if (!joinColor) return;
+    window.localStorage.setItem("stellcon.color", joinColor);
+  }, [joinColor]);
 
   useEffect(() => {
     window.localStorage.setItem("stellcon.muteMusic", musicMuted ? "1" : "0");
@@ -1301,6 +1317,10 @@ function App() {
   };
 
   if (!gameId) {
+    const trimmedProfileName = joinName.trim().replace(/\s+/g, " ");
+    const isProfileValid = trimmedProfileName.length >= 2;
+    const effectiveJoinColor = (joinColor || PLAYER_COLORS[0]) as PlayerColor;
+
     return (
       <div className="lobby">
         <LobbyStars audioEl={backgroundAudioEl} />
@@ -1308,16 +1328,70 @@ function App() {
           <div className="lobby-brand" aria-label="Stellcon">
             <div className="lobby-brand-title">Stellcon</div>
           </div>
-          <div className="lobby-card">
-            <Lobby
-              onCreate={handleCreate}
-              onJoin={handleJoin}
-              onWatch={handleWatch}
-              isBusy={!socket}
-              games={availableGames}
-            />
-          </div>
+          {isLobbyUnlocked ? (
+            <div className="lobby-card">
+              <Lobby
+                onCreate={handleCreate}
+                onJoin={handleJoin}
+                onWatch={handleWatch}
+                isBusy={!socket}
+                games={availableGames}
+                name={joinName}
+                color={effectiveJoinColor}
+                onNameChange={setJoinName}
+                onColorChange={setJoinColor}
+              />
+            </div>
+          ) : null}
         </div>
+
+        {!isLobbyUnlocked ? (
+          <div className="join-prompt-overlay">
+            <div className="join-prompt-card" role="dialog" aria-modal="true" aria-label="Commander setup">
+              <div className="join-prompt-title">Commander Setup</div>
+              <div className="join-prompt-subtitle">Enter your commander name to continue to the lobby.</div>
+
+              {profilePromptTouched && !isProfileValid ? <div className="join-prompt-error">Name must be at least 2 characters</div> : null}
+
+              <label className="join-prompt-label">
+                Commander Name
+                <input
+                  className="join-prompt-input"
+                  value={joinName}
+                  onChange={(event) => {
+                    if (!profilePromptTouched) setProfilePromptTouched(true);
+                    setJoinName(event.target.value);
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key !== "Enter") return;
+                    setProfilePromptTouched(true);
+                    if (!isProfileValid) return;
+                    setJoinName(trimmedProfileName);
+                    setIsLobbyUnlocked(true);
+                  }}
+                  placeholder="Enter your name"
+                  autoFocus
+                />
+              </label>
+
+              <div className="join-prompt-actions">
+                <button
+                  type="button"
+                  disabled={!isProfileValid}
+                  onClick={() => {
+                    setProfilePromptTouched(true);
+                    if (!isProfileValid) return;
+                    setJoinName(trimmedProfileName);
+                    setIsLobbyUnlocked(true);
+                  }}
+                >
+                  Continue
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : null}
+
         <SoundControls
           musicMuted={musicMuted}
           sfxMuted={sfxMuted}
@@ -1397,7 +1471,7 @@ function App() {
               </div>
               <div className="waiting-players">
                 {players.map((player) => (
-                  <div key={player.id} className="waiting-player" style={{ "--player-color": player.color } as React.CSSProperties}>
+                  <div key={player.id} className="waiting-player" style={{ "--player-color": player.color } as CSSProperties}>
                     <span className="waiting-player-dot" />
                     <span className="waiting-player-name">{player.name}</span>
                     {player.id === playerId ? <span className="waiting-player-you">(You)</span> : null}
@@ -1477,7 +1551,7 @@ function App() {
                         key={c}
                         type="button"
                         className={`join-prompt-color ${joinColor === c ? "active" : ""}`}
-                        style={{ "--swatch-color": c } as React.CSSProperties}
+                        style={{ "--swatch-color": c } as CSSProperties}
                         onClick={() => setJoinColor(c)}
                         aria-label={`Color ${c}`}
                       />
@@ -1689,7 +1763,7 @@ function App() {
                       key={c}
                       type="button"
                       className={`join-prompt-color ${joinColor === c ? "active" : ""}`}
-                      style={{ "--swatch-color": c } as React.CSSProperties}
+                      style={{ "--swatch-color": c } as CSSProperties}
                       onClick={() => setJoinColor(c)}
                       aria-label={`Color ${c}`}
                     />
