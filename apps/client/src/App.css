@@ -327,6 +327,16 @@ button:disabled {
   font-size: 12px;
   color: var(--muted);
   margin-bottom: 12px;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
+}
+
+.game-code:hover {
+  color: rgba(116, 242, 255, 0.9);
 }
 
 .player-card {

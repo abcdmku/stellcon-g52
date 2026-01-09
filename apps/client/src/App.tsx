@@ -1483,13 +1483,15 @@ function App() {
                 className="waiting-code"
                 onClick={() => {
                   if (gameId && !codeCopied) {
-                    navigator.clipboard.writeText(gameId).then(() => {
+                    const url = new URL(window.location.href);
+                    url.searchParams.set("game", gameId);
+                    navigator.clipboard.writeText(url.toString()).then(() => {
                       setCodeCopied(true);
                       setTimeout(() => setCodeCopied(false), 2000);
                     }).catch(() => {});
                   }
                 }}
-                title="Click to copy"
+                title="Click to copy game URL"
               >
                 <span className="waiting-code-label">Game Code</span>
                 <span className="waiting-code-value">{gameId}</span>
@@ -1816,7 +1818,23 @@ function App() {
         <aside className="overlay-section left">
           <div className="panel left-commanders-card">
             <div className="panel-title">Commanders</div>
-            <div className="game-code">Game Code: {gameId}</div>
+            <button
+              type="button"
+              className="game-code"
+              onClick={() => {
+                if (gameId && !codeCopied) {
+                  const url = new URL(window.location.href);
+                  url.searchParams.set("game", gameId);
+                  navigator.clipboard.writeText(url.toString()).then(() => {
+                    setCodeCopied(true);
+                    setTimeout(() => setCodeCopied(false), 2000);
+                  }).catch(() => {});
+                }
+              }}
+              title="Click to copy game URL"
+            >
+              Game Code: {gameId} {codeCopied ? "(Copied!)" : ""}
+            </button>
             <div className="player-list">
               {commanderPlayers.map((player) => (
                 <PlayerCard
