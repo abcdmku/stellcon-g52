@@ -218,12 +218,56 @@ function EndgameStatsModal({
   );
 }
 
+function LeaveConfirmModal({
+  open,
+  onCancel,
+  onConfirm,
+}: {
+  open: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  useEffect(() => {
+    if (!open) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onCancel();
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [open, onCancel]);
+
+  if (!open) return null;
+
+  return (
+    <div
+      className="confirm-overlay"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Return to lobby confirmation"
+      onClick={onCancel}
+    >
+      <div className="confirm-card" onClick={(event) => event.stopPropagation()}>
+        <div className="confirm-title">Return to lobby?</div>
+        <div className="confirm-subtitle">You&apos;ll leave the current match.</div>
+        <div className="confirm-actions">
+          <button type="button" className="secondary" onClick={onCancel}>
+            Cancel
+          </button>
+          <button type="button" onClick={onConfirm}>
+            Return
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function FleetIcon({ size = 14 }: { size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true" focusable="false">
       <path
         fill="currentColor"
-        d="M12 2.2c.4 0 .8.2 1 .6l2.6 4.9 5 .7c.5.1.9.5 1 .9.1.5-.1 1-.5 1.3l-3.7 3.5.9 4.9c.1.5-.1 1-.5 1.3-.4.3-1 .3-1.4.1L12 19.6 7.6 21.4c-.5.2-1 .2-1.4-.1-.4-.3-.6-.8-.5-1.3l.9-4.9-3.7-3.5c-.4-.3-.6-.8-.5-1.3.1-.4.5-.8 1-.9l5-.7 2.6-4.9c.2-.4.6-.6 1-.6Zm0 3.7-1.9 3.7c-.2.3-.5.6-.9.6l-4.1.6 3 2.8c.3.2.4.6.3 1l-.7 4 3.6-1.5c.3-.1.7-.1 1 0l3.6 1.5-.7-4c-.1-.4.1-.7.3-1l3-2.8-4.1-.6c-.4-.1-.7-.3-.9-.6L12 5.9Z"
+        d="M12 2.6c3.4 0 6.2 2.7 6.2 6.1 0 .8-.1 1.5-.4 2.2l2 2.1c.4.4.4 1 0 1.4l-1.4 1.4c-.4.4-1 .4-1.4 0l-1.4-1.4a6.2 6.2 0 0 1-7.2 0L7 15.8c-.4.4-1 .4-1.4 0l-1.4-1.4c-.4-.4-.4-1 0-1.4l2-2.1c-.3-.7-.4-1.4-.4-2.2C5.8 5.3 8.6 2.6 12 2.6Zm0 2c-2.3 0-4.2 1.8-4.2 4.1 0 .6.1 1.1.3 1.6l.2.5-2.1 2.2.7.7 1.8-1.8.6.5c1.7 1.2 4.1 1.2 5.8 0l.6-.5 1.8 1.8.7-.7-2.1-2.2.2-.5c.2-.5.3-1 .3-1.6 0-2.3-1.9-4.1-4.2-4.1Zm-3.9 13.7c-.3-.5.1-1.1.7-1.1h6.4c.6 0 1 .6.7 1.1l-1.1 1.9c-.2.4-.6.6-1 .6h-3.6c-.4 0-.8-.2-1-.6l-1.1-1.9Z"
       />
     </svg>
   );
@@ -254,6 +298,50 @@ function SfxIcon({ muted, size = 18 }: { muted: boolean; size?: number }) {
         opacity={muted ? 0.25 : 0.95}
       />
       {muted ? <path fill="currentColor" d="M16.1 9.9a1 1 0 0 1 1.4 0l2.7 2.7a1 1 0 0 1 0 1.4l-2.7 2.7a1 1 0 1 1-1.4-1.4l2-2-2-2a1 1 0 0 1 0-1.4Z" /> : null}
+    </svg>
+  );
+}
+
+function CommandersIcon({ size = 18 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path
+        fill="currentColor"
+        d="M16.7 11.1c1.6 0 3-1.4 3-3.2 0-1.7-1.3-3.1-3-3.1s-3 1.4-3 3.1c0 1.8 1.3 3.2 3 3.2Zm-9.4 0c1.6 0 3-1.4 3-3.2 0-1.7-1.3-3.1-3-3.1s-3 1.4-3 3.1c0 1.8 1.3 3.2 3 3.2Zm0 2.1c-2.4 0-4.3 1.8-4.3 4.1 0 .5.4.9.9.9H11c.5 0 .9-.4.9-.9 0-2.3-1.9-4.1-4.6-4.1Zm9.4 0c-.3 0-.7 0-1 .1 1.1.8 1.8 2 1.8 3.4 0 .5-.1 1-.2 1.4h3.9c.5 0 .9-.4.9-.9 0-2.3-1.9-4-5.4-4Z"
+      />
+    </svg>
+  );
+}
+
+function ExitIcon({ size = 18 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path
+        fill="currentColor"
+        d="M10 3.5c0-.6.4-1 1-1h7c.6 0 1 .4 1 1v17c0 .6-.4 1-1 1h-7c-.6 0-1-.4-1-1v-3.2c0-.6.4-1 1-1s1 .4 1 1v2.2h5v-15h-5v2.2c0 .6-.4 1-1 1s-1-.4-1-1V3.5Z"
+      />
+      <path
+        fill="currentColor"
+        d="M4.3 12.1c0-.3.1-.6.3-.8l3.2-3c.4-.4 1-.3 1.4.1.4.4.3 1-.1 1.4l-1.5 1.4H14c.6 0 1 .4 1 1s-.4 1-1 1H7.6l1.5 1.4c.4.4.4 1 0 1.4-.4.4-1 .4-1.4 0l-3.2-3c-.2-.2-.3-.5-.3-.8Z"
+      />
+    </svg>
+  );
+}
+
+function LockInIcon({ locked, size = 18 }: { locked: boolean; size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      {locked ? (
+        <path
+          fill="currentColor"
+          d="M12 2.8c2.6 0 4.7 2.1 4.7 4.7v2h.7c.8 0 1.5.7 1.5 1.5v8.2c0 .8-.7 1.5-1.5 1.5H6.6c-.8 0-1.5-.7-1.5-1.5V11c0-.8.7-1.5 1.5-1.5h.7v-2C7.3 4.9 9.4 2.8 12 2.8Zm0 2c-1.5 0-2.7 1.2-2.7 2.7v2h5.4v-2c0-1.5-1.2-2.7-2.7-2.7Z"
+        />
+      ) : (
+        <path
+          fill="currentColor"
+          d="M12 2.8c2.6 0 4.7 2.1 4.7 4.7v2h.7c.8 0 1.5.7 1.5 1.5v8.2c0 .8-.7 1.5-1.5 1.5H6.6c-.8 0-1.5-.7-1.5-1.5V11c0-.8.7-1.5 1.5-1.5h8.1v-2c0-1.5-1.2-2.7-2.7-2.7-1.2 0-2.2.8-2.6 1.9-.2.5-.8.8-1.3.6-.5-.2-.8-.8-.6-1.3C8.2 4 10 2.8 12 2.8Z"
+        />
+      )}
     </svg>
   );
 }
@@ -301,6 +389,8 @@ function App() {
   const [gameId, setGameId] = useState<string | null>(DEMO_MODE ? demoState.id : null);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [leaveConfirmOpen, setLeaveConfirmOpen] = useState(false);
+  const [mobilePanel, setMobilePanel] = useState<"none" | "commanders" | "actions">("none");
   const [endgameDismissed, setEndgameDismissed] = useState(false);
   const [endgameStatsOpen, setEndgameStatsOpen] = useState(false);
   const [endgameStatsTab, setEndgameStatsTab] = useState<EndgameStatsTabId>("fleetProduction");
@@ -1265,6 +1355,7 @@ function App() {
   };
 
   const handleLeaveGame = () => {
+    setLeaveConfirmOpen(false);
     if (socket && !DEMO_MODE) {
       leaveGame();
     }
@@ -1275,12 +1366,23 @@ function App() {
     setGameId(null);
     setPlayerId(null);
     setState(null);
+    setMobilePanel("none");
     resetOrders();
     setSelectedId(null);
     setMoveOriginId(null);
     setPendingAllianceFromIds({});
     setError("");
   };
+
+  const requestLeaveGame = () => setLeaveConfirmOpen(true);
+
+  const leaveConfirmModal = (
+    <LeaveConfirmModal
+      open={leaveConfirmOpen}
+      onCancel={() => setLeaveConfirmOpen(false)}
+      onConfirm={handleLeaveGame}
+    />
+  );
 
   const handleNewMatch = () => {
     if (!socket || !state) return;
@@ -1405,12 +1507,13 @@ function App() {
   if (!state) {
     return (
       <div className="loading">
+        <button type="button" className="lobby-fab" onClick={requestLeaveGame} aria-label="Return to lobby" title="Return to lobby">
+          <ExitIcon />
+        </button>
         <div>
           <div>Awaiting sector sync...</div>
-          <button type="button" onClick={handleLeaveGame} className="secondary" style={{ marginTop: 12 }}>
-            Return to Lobby
-          </button>
         </div>
+        {leaveConfirmModal}
         <SoundControls
           musicMuted={musicMuted}
           sfxMuted={sfxMuted}
@@ -1458,6 +1561,9 @@ function App() {
   if (isWaitingForPlayers) {
     return (
       <div className="lobby">
+        <button type="button" className="lobby-fab" onClick={requestLeaveGame} aria-label="Return to lobby" title="Return to lobby">
+          <ExitIcon />
+        </button>
         <LobbyStars audioEl={backgroundAudioEl} />
         <div className="lobby-shell">
           <div className="lobby-brand" aria-label="Stellcon">
@@ -1513,12 +1619,10 @@ function App() {
                   Start with {players.length} Players
                 </button>
               ) : null}
-              <button type="button" className="secondary waiting-leave" onClick={handleLeaveGame}>
-                Leave Game
-              </button>
             </div>
           </div>
         </div>
+        {leaveConfirmModal}
         {canJoinGame ? (
           <div className="join-prompt-overlay">
             <div className="join-prompt-card">
@@ -1611,9 +1715,28 @@ function App() {
     );
   }
 
+  const hasTopStack = Boolean(
+    error ||
+      notice ||
+      powerupDraft ||
+      alliancePopup ||
+      (isComplete && endgameDismissed && !endgameStatsToastDismissed)
+  );
+
   return (
-    <div className="app">
+    <div className="app" data-mobile-panel={mobilePanel} data-topstack={hasTopStack ? "1" : "0"}>
       <GameStars />
+      {mobilePanel !== "none" ? (
+        <button
+          type="button"
+          className="mobile-backdrop"
+          onClick={() => setMobilePanel("none")}
+          aria-label="Close panels"
+        />
+      ) : null}
+      <button type="button" className="lobby-fab" onClick={requestLeaveGame} aria-label="Return to lobby" title="Return to lobby">
+        <ExitIcon />
+      </button>
       <div className="corner-brand" aria-hidden="true">
         <div className="lobby-brand-title">Stellcon</div>
       </div>
@@ -1709,17 +1832,16 @@ function App() {
                 </button>
               </div>
             ) : null}
-            <div className="endgame-actions">
-              <button type="button" onClick={handleNewMatch}>
-                New Match
-              </button>
-              <button type="button" className="secondary" onClick={handleLeaveGame}>
-                Return to Lobby
-              </button>
-            </div>
+          <div className="endgame-actions">
+            <button type="button" onClick={handleNewMatch}>
+              New Match
+            </button>
           </div>
         </div>
-      ) : null}
+      </div>
+    ) : null}
+
+      {leaveConfirmModal}
 
       <EndgameStatsModal
         open={isComplete && endgameStatsOpen}
@@ -1929,12 +2051,6 @@ function App() {
 
         <aside className="overlay-section right">
           <div className="right-actions-stack">
-            <div className="top-actions right-actions-top">
-              <button type="button" onClick={handleLeaveGame} className="secondary">
-                Return to Lobby
-              </button>
-            </div>
-
             <div className="panel right-actions-card">
               <div className="panel-subtitle">Fleet Placement</div>
               <div className="panel-row">
@@ -1946,7 +2062,13 @@ function App() {
                   aria-pressed={placementMode}
                   title={placementMode ? "Placement mode active" : "Enter placement mode"}
                 >
-                  <FleetIcon />
+                  <img
+                    className="fleet-placement-icon"
+                    src={`${import.meta.env.BASE_URL}favicon.svg`}
+                    alt=""
+                    aria-hidden="true"
+                    draggable="false"
+                  />
                   <span className="bottom-placement-count">{fleetsRemaining}</span>
                 </button>
                 <div className="muted">Click one of your systems to place 1 fleet.</div>
@@ -2006,10 +2128,67 @@ function App() {
               {powerupDraft ? (
                 <div className="muted">{powerupHelp[powerupDraft] || "Click a highlighted system to place."}</div>
               ) : null}
+
+              <div className="panel-subtitle">Planned Moves</div>
+              {orders.moves.length ? (
+                <div className="planned-moves-list" role="list" aria-label="Planned moves">
+                  {orders.moves.map((move, index) => (
+                    <div key={`move-${move.fromId}-${move.toId}-${index}`} className="planned-move-row" role="listitem">
+                      <div className="planned-move-label">
+                        <span className="planned-move-from">{move.fromId}</span>
+                        <span className="planned-move-arrow" aria-hidden="true">
+                          →
+                        </span>
+                        <span className="planned-move-to">{move.toId}</span>
+                      </div>
+                      <div className="planned-move-actions">
+                        <button type="button" className="planned-move-btn" onClick={() => handleAdjustMove(index, -1)} aria-label="Decrease fleets">
+                          −
+                        </button>
+                        <div className="planned-move-count" aria-label={`Fleets: ${move.count}`}>
+                          {move.count}
+                        </div>
+                        <button type="button" className="planned-move-btn" onClick={() => handleAdjustMove(index, 1)} aria-label="Increase fleets">
+                          +
+                        </button>
+                        <button type="button" className="planned-move-btn cancel" onClick={() => handleRemoveMove(index)} aria-label="Remove move">
+                          ×
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="muted">No moves queued yet. Tap a system, then tap a neighbor to queue a move.</div>
+              )}
             </div>
           </div>
         </aside>
       </div>
+
+      {playerId ? (
+        <button
+          type="button"
+          className={`lock-fab${me?.locked ? " locked" : ""}`}
+          onClick={handleLockIn}
+          disabled={state.phase !== "planning" || Boolean(me?.locked)}
+          aria-label={me?.locked ? "Locked in" : "Lock in"}
+          title={me?.locked ? "Locked in" : "Lock in"}
+        >
+          <LockInIcon locked={Boolean(me?.locked)} />
+        </button>
+      ) : null}
+
+      <button
+        type="button"
+        className={`commanders-fab${mobilePanel === "commanders" ? " active" : ""}`}
+        onClick={() => setMobilePanel((current) => (current === "commanders" ? "none" : "commanders"))}
+        aria-pressed={mobilePanel === "commanders"}
+        aria-label="Commanders"
+        title="Commanders"
+      >
+        <CommandersIcon />
+      </button>
 
       <div className="overlay-bottom" aria-label="Game Status">
         <div className="bottom-hud">
@@ -2019,16 +2198,80 @@ function App() {
                 <div className="countdown-fill" style={{ width: `${planningRatio * 100}%` }} />
               </div>
               <div className="countdown-text">
-                Turn {state.turn} of {state.config.maxTurns} — {state.phase === "planning" ? `${timer}s` : "Resolving..."}
+                <span className="countdown-turn">
+                  T{state.turn}/{state.config.maxTurns}
+                </span>
+                <span className="countdown-phase">
+                  {state.phase === "planning" ? `${timer}s` : "Resolving"}
+                </span>
               </div>
             </div>
-
-            <div className="bottom-actions">
-              <button type="button" onClick={handleLockIn} disabled={state.phase !== "planning" || me?.locked}>
-                {me?.locked ? "Locked" : "Lock In"}
-              </button>
-            </div>
           </div>
+        </div>
+      </div>
+
+      <div className="mobile-hud-dock" role="group" aria-label="Game controls">
+        <button
+          type="button"
+          className={`dock-btn dock-placement ${placementMode ? "active" : ""}`}
+          onClick={handleTogglePlacementMode}
+          disabled={!playerId || state.phase !== "planning" || fleetsRemaining <= 0}
+          aria-pressed={placementMode}
+          aria-label={`Fleet placement (${fleetsRemaining} remaining)`}
+          title={`Fleet placement (${fleetsRemaining} remaining)`}
+        >
+          <img
+            className="fleet-placement-icon"
+            src={`${import.meta.env.BASE_URL}favicon.svg`}
+            alt=""
+            aria-hidden="true"
+            draggable="false"
+          />
+          {fleetsRemaining > 0 ? (
+            <span className="dock-badge" aria-hidden="true">
+              {fleetsRemaining}
+            </span>
+          ) : null}
+        </button>
+
+        <div className="dock-divider" aria-hidden="true" />
+
+        <div className="dock-powerups" role="group" aria-label="Powerups">
+          {Object.values(POWERUPS).map((powerup) => {
+            const points = Number(me?.research?.[powerup.resource] || 0);
+            const ratio = clamp(points / powerup.cost, 0, 1);
+            const canUse = !!playerId && state.phase === "planning" && points >= powerup.cost;
+            const isPlaced = orders.powerups.some((p) => p.type === powerup.key);
+            const isActive = powerupDraft === powerup.key;
+
+            return (
+              <button
+                key={`dock-powerup-${powerup.key}`}
+                type="button"
+                className={`dock-powerup${isActive ? " active" : ""}${canUse && !isPlaced ? " available" : ""}${isPlaced ? " placed" : ""}`}
+                disabled={!playerId || state.phase !== "planning"}
+                onClick={() => {
+                  setPlacementMode(false);
+                  setMoveOriginId(null);
+                  setSelectedId(null);
+                  setWormholeFromId(null);
+                  if (isPlaced) {
+                    removePowerup(powerup.key);
+                    setPowerupDraft("");
+                  } else if (powerupDraft === powerup.key) {
+                    setPowerupDraft("");
+                  } else if (canUse) {
+                    setPowerupDraft(powerup.key);
+                  }
+                }}
+                aria-label={`${powerup.label}: ${isPlaced ? "Placed (tap to remove)" : `${points}/${powerup.cost} ${resourceLabels[powerup.resource]}`}`}
+                title={`${powerup.label}: ${isPlaced ? "Placed (tap to remove)" : `${points}/${powerup.cost} ${resourceLabels[powerup.resource]}`}`}
+                style={{ "--res-color": RESOURCE_COLORS[powerup.resource] || "rgba(255,255,255,0.6)", "--progress": ratio } as CSSProperties}
+              >
+                <PowerupIcon type={powerup.key} size={18} />
+              </button>
+            );
+          })}
         </div>
       </div>
 

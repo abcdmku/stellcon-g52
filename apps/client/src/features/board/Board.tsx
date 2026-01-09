@@ -19,6 +19,8 @@ const MOVE_BADGE_POINTS = "-16,-11 16,0 -16,11 -10,0";
 const MOVE_VERTICAL_RATIO = 0.35;
 const RESOURCE_MAX = 5;
 const DRAG_THRESHOLD_PX = 10;
+const DOUBLE_TAP_MS = 320;
+const DOUBLE_TAP_DIST_PX = 24;
 
 type Rgb = { r: number; g: number; b: number };
 
@@ -157,6 +159,10 @@ const Board = memo(function Board({
     if (typeof window === "undefined") return false;
     return window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches ?? false;
   }, []);
+  const coarsePointer = useMemo(() => {
+    if (typeof window === "undefined") return false;
+    return window.matchMedia?.("(pointer: coarse)")?.matches ?? false;
+  }, []);
   const rgbCacheRef = useRef(new Map<string, Rgb | null>());
   const getRgb = useCallback((hex: string) => {
     const cache = rgbCacheRef.current;
@@ -175,6 +181,18 @@ const Board = memo(function Board({
   const dragging = useRef(false);
   const pointerDown = useRef(false);
   const pointerCaptured = useRef(false);
+  const capturedPointerIdRef = useRef<number | null>(null);
+  const activePointersRef = useRef(new Map<number, { x: number; y: number }>());
+  const pinchRef = useRef<
+    | null
+    | {
+        startScale: number;
+        startOffset: { x: number; y: number };
+        startDistance: number;
+        worldX: number;
+        worldY: number;
+      }
+  >(null);
   const lastPos = useRef({ x: 0, y: 0 });
   const dragStart = useRef({ x: 0, y: 0 });
   const didDrag = useRef(false);
@@ -183,6 +201,7 @@ const Board = memo(function Board({
   const scaleRef = useRef(scale);
   const panRaf = useRef(0);
   const pointerIdRef = useRef(null);
+  const lastTapRef = useRef<{ at: number; x: number; y: number } | null>(null);
   const redrawTimeoutRef = useRef<number | null>(null);
   const rasterBustRef = useRef(false);
   const hoverRafRef = useRef<number>(0);
@@ -400,6 +419,8 @@ const Board = memo(function Board({
 
     const leftHud = document.querySelector(".overlay-section.left");
     const rightHud = document.querySelector(".overlay-section.right");
+    const mobileDock = document.querySelector(".mobile-hud-dock");
+    const commandersFab = document.querySelector(".commanders-fab");
     const topHud = document.querySelector(".overlay-top");
     const bottomHud = document.querySelector(".overlay-bottom");
 
@@ -427,23 +448,28 @@ const Board = memo(function Board({
 
     if (leftHud) applyHudSafeArea(leftHud.getBoundingClientRect(), "left");
     if (rightHud) applyHudSafeArea(rightHud.getBoundingClientRect(), "right");
+    if (mobileDock) applyHudSafeArea(mobileDock.getBoundingClientRect(), "right");
+    if (commandersFab) applyHudSafeArea(commandersFab.getBoundingClientRect(), "left");
     if (topHud) {
       const r = topHud.getBoundingClientRect();
       safeTop = Math.max(safeTop, r.bottom - rect.top + overlayGap);
     }
     if (bottomHud) {
       const r = bottomHud.getBoundingClientRect();
-      safeBottom = Math.min(safeBottom, r.top - rect.top - overlayGap);
+      const spansMostWidth = r.width >= rect.width * 0.7;
+      const nearTop = r.top <= rect.top + margin * 2;
+      const nearBottom = r.bottom >= rect.bottom - margin * 2;
+      if (spansMostWidth && nearTop) {
+        safeTop = Math.max(safeTop, r.bottom - rect.top + overlayGap);
+      } else if (nearBottom) {
+        safeBottom = Math.min(safeBottom, r.top - rect.top - overlayGap);
+      }
     }
 
     const availableWidth = Math.max(1, safeRight - safeLeft);
     const availableHeight = Math.max(1, safeBottom - safeTop);
 
-    const nextScale = clamp(
-      Math.min(availableWidth / contentWidth, availableHeight / contentHeight),
-      MIN_SCALE,
-      FIT_MAX_SCALE
-    );
+    const nextScale = clamp(Math.min(availableWidth / contentWidth, availableHeight / contentHeight), MIN_SCALE, FIT_MAX_SCALE);
     const centerX = (minX + maxX) / 2;
     const centerY = (minY + maxY) / 2;
 
@@ -842,6 +868,36 @@ const Board = memo(function Board({
   const activeBattleState = null;
   const activeBattleFx = null;
 
+  const findClosestPlannedMoveIndex = useCallback(
+    (point: { x: number; y: number }, thresholdPx: number) => {
+      const threshold2 = thresholdPx * thresholdPx;
+      let bestIndex: number | null = null;
+      let bestDist2 = Number.POSITIVE_INFINITY;
+
+      for (const path of plannedPathsRef.current || []) {
+        const p0 = path.from;
+        const p1 = { x: path.cx, y: path.cy };
+        const p2 = path.to;
+        const sampleTs = [0.25, 0.5, 0.75];
+        for (const t of sampleTs) {
+          const a = 1 - t;
+          const px = a * a * p0.x + 2 * a * t * p1.x + t * t * p2.x;
+          const py = a * a * p0.y + 2 * a * t * p1.y + t * t * p2.y;
+          const dx = px - point.x;
+          const dy = py - point.y;
+          const dist2 = dx * dx + dy * dy;
+          if (dist2 < bestDist2) {
+            bestDist2 = dist2;
+            bestIndex = path.index;
+          }
+        }
+      }
+
+      return bestDist2 <= threshold2 ? bestIndex : null;
+    },
+    []
+  );
+
   const handleWheel = (event) => {
     event.preventDefault();
     cameraTouched.current = true;
@@ -887,22 +943,93 @@ const Board = memo(function Board({
   };
 
   const handlePointerDown = (event) => {
-    if (event.target.closest) {
-      if (event.target.closest("button")) return;
-    }
+    if (event.target?.closest?.("button")) return;
     cameraTouched.current = true;
+
+    const activePointers = activePointersRef.current;
+    activePointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+
+    if (activePointers.size >= 2) {
+      lastTapRef.current = null;
+      setHoveredMoveIndex(null);
+      didDrag.current = true;
+      dragging.current = true;
+      suppressNextClick.current = true;
+      pointerDown.current = true;
+      pointerCaptured.current = false;
+      capturedPointerIdRef.current = null;
+
+      const points = [...activePointers.values()];
+      const a = points[0];
+      const b = points[1];
+      const startDistance = Math.max(1, Math.hypot(b.x - a.x, b.y - a.y));
+      const centerClientX = (a.x + b.x) / 2;
+      const centerClientY = (a.y + b.y) / 2;
+
+      const rect = event.currentTarget.getBoundingClientRect();
+      const anchorX = centerClientX - (rect.left + rect.width / 2);
+      const anchorY = centerClientY - (rect.top + rect.height / 2);
+
+      const startScale = scaleRef.current || 1;
+      const startOffset = offsetRef.current || { x: 0, y: 0 };
+      const worldX = (anchorX - startOffset.x) / startScale;
+      const worldY = (anchorY - startOffset.y) / startScale;
+
+      pinchRef.current = { startScale, startOffset, startDistance, worldX, worldY };
+      return;
+    }
+
+    pinchRef.current = null;
     pointerDown.current = true;
     dragging.current = false;
     didDrag.current = false;
     suppressNextClick.current = false;
     pointerIdRef.current = event.pointerId;
     pointerCaptured.current = false;
+    capturedPointerIdRef.current = null;
     lastPos.current = { x: event.clientX, y: event.clientY };
     dragStart.current = { x: event.clientX, y: event.clientY };
   };
 
   const handlePointerMove = (event) => {
-    if (pointerDown.current) {
+    const activePointers = activePointersRef.current;
+    if (activePointers.has(event.pointerId)) {
+      activePointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    }
+
+    if (pinchRef.current && activePointers.size >= 2) {
+      const pinch = pinchRef.current;
+      const points = [...activePointers.values()];
+      const a = points[0];
+      const b = points[1];
+      const currentDistance = Math.max(1, Math.hypot(b.x - a.x, b.y - a.y));
+      const ratio = currentDistance / Math.max(1, pinch.startDistance);
+
+      const rect = event.currentTarget.getBoundingClientRect();
+      const centerClientX = (a.x + b.x) / 2;
+      const centerClientY = (a.y + b.y) / 2;
+      const anchorX = centerClientX - (rect.left + rect.width / 2);
+      const anchorY = centerClientY - (rect.top + rect.height / 2);
+
+      const nextScale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, pinch.startScale * ratio));
+      const nextOffset = { x: anchorX - pinch.worldX * nextScale, y: anchorY - pinch.worldY * nextScale };
+
+      scaleRef.current = nextScale;
+      offsetRef.current = nextOffset;
+      suppressNextClick.current = true;
+      didDrag.current = true;
+      dragging.current = true;
+
+      if (!panRaf.current) {
+        panRaf.current = requestAnimationFrame(() => {
+          panRaf.current = 0;
+          applyCanvasTransform();
+        });
+      }
+      return;
+    }
+
+    if (pointerDown.current && event.pointerId === pointerIdRef.current) {
       const totalDx = event.clientX - dragStart.current.x;
       const totalDy = event.clientY - dragStart.current.y;
       if (!didDrag.current && !dragging.current) {
@@ -913,6 +1040,7 @@ const Board = memo(function Board({
         if (event.currentTarget.setPointerCapture && typeof event.pointerId === "number") {
           event.currentTarget.setPointerCapture(event.pointerId);
           pointerCaptured.current = true;
+          capturedPointerIdRef.current = event.pointerId;
         }
         lastPos.current = { x: event.clientX, y: event.clientY };
         return;
@@ -932,6 +1060,7 @@ const Board = memo(function Board({
     }
 
     if (phase !== "planning") return;
+    if (coarsePointer) return;
     if (event.target?.closest?.(".planned-move-controls")) return;
 
     // Throttle hover detection using requestAnimationFrame
@@ -952,35 +1081,42 @@ const Board = memo(function Board({
       hoverRafRef.current = 0;
       const pending = pendingHoverRef.current;
       if (!pending) return;
-
-      let best = { index: null, dist2: Number.POSITIVE_INFINITY };
-      for (const path of plannedPathsRef.current || []) {
-        const p0 = path.from;
-        const p1 = { x: path.cx, y: path.cy };
-        const p2 = path.to;
-        // Reduced from 5 samples to 3 for better performance
-        const sampleTs = [0.25, 0.5, 0.75];
-        for (const t of sampleTs) {
-          const a = 1 - t;
-          const px = a * a * p0.x + 2 * a * t * p1.x + t * t * p2.x;
-          const py = a * a * p0.y + 2 * a * t * p1.y + t * t * p2.y;
-          const dx = px - pending.x;
-          const dy = py - pending.y;
-          const dist2 = dx * dx + dy * dy;
-          if (dist2 < best.dist2) best = { index: path.index, dist2 };
-        }
-      }
-
-      const threshold2 = 18 * 18;
-      setHoveredMoveIndex(best.dist2 <= threshold2 ? best.index : null);
+      setHoveredMoveIndex(findClosestPlannedMoveIndex(pending, 18));
     });
   };
 
   const handlePointerUp = (event) => {
+    const activePointers = activePointersRef.current;
+    activePointers.delete(event.pointerId);
+
+    if (activePointers.size >= 2) return;
+
+    if (activePointers.size === 1) {
+      // Transition from pinch to pan if one finger remains on the board.
+      pinchRef.current = null;
+      const [remainingId, pos] = activePointers.entries().next().value as [number, { x: number; y: number }];
+      pointerIdRef.current = remainingId;
+      pointerDown.current = true;
+      dragging.current = true;
+      didDrag.current = true;
+      suppressNextClick.current = true;
+      lastPos.current = { x: pos.x, y: pos.y };
+      dragStart.current = { x: pos.x, y: pos.y };
+      return;
+    }
+
+    pinchRef.current = null;
     pointerDown.current = false;
     dragging.current = false;
-    if (didDrag.current) suppressNextClick.current = true;
+
     const isPlannedMoveControl = Boolean(event?.target?.closest && event.target.closest(".planned-move-controls"));
+    const isHex = Boolean(event?.target?.closest && event.target.closest(".hex"));
+
+    if (didDrag.current) {
+      suppressNextClick.current = true;
+      lastTapRef.current = null;
+    }
+
     if (panRaf.current) {
       cancelAnimationFrame(panRaf.current);
       panRaf.current = 0;
@@ -988,17 +1124,81 @@ const Board = memo(function Board({
     if (offsetRef.current.x !== offset.x || offsetRef.current.y !== offset.y) {
       setOffset(offsetRef.current);
     }
-    const pointerId = pointerIdRef.current;
     pointerIdRef.current = null;
-    if (pointerCaptured.current && event.currentTarget.releasePointerCapture && typeof pointerId === "number") {
+    if (scaleRef.current !== scale) {
+      setScale(scaleRef.current);
+    }
+
+    const capturedPointerId = capturedPointerIdRef.current;
+    capturedPointerIdRef.current = null;
+    if (pointerCaptured.current && event.currentTarget.releasePointerCapture && typeof capturedPointerId === "number") {
       try {
-        event.currentTarget.releasePointerCapture(pointerId);
+        event.currentTarget.releasePointerCapture(capturedPointerId);
       } catch {
         // ignore
       }
     }
     pointerCaptured.current = false;
-    if (!isPlannedMoveControl) setHoveredMoveIndex(null);
+
+    if (event.type !== "pointerup") {
+      lastTapRef.current = null;
+      if (!isPlannedMoveControl) setHoveredMoveIndex(null);
+      return;
+    }
+
+    if (didDrag.current) {
+      if (!isPlannedMoveControl) setHoveredMoveIndex(null);
+      return;
+    }
+
+    if (isPlannedMoveControl) return;
+    if (phase !== "planning") {
+      setHoveredMoveIndex(null);
+      return;
+    }
+    if (isHex) {
+      setHoveredMoveIndex(null);
+      return;
+    }
+
+    const isTouchTap = event.pointerType === "touch" || coarsePointer;
+    if (isTouchTap) {
+      const now = Date.now();
+      const lastTap = lastTapRef.current;
+      if (
+        lastTap &&
+        now - lastTap.at <= DOUBLE_TAP_MS &&
+        Math.hypot(event.clientX - lastTap.x, event.clientY - lastTap.y) <= DOUBLE_TAP_DIST_PX
+      ) {
+        lastTapRef.current = null;
+        suppressNextClick.current = true;
+        cameraTouched.current = false;
+        setHoveredMoveIndex(null);
+        fitCameraToMap();
+        bustHexRasterization();
+        return;
+      }
+      lastTapRef.current = { at: now, x: event.clientX, y: event.clientY };
+    }
+
+    const rect = event.currentTarget.getBoundingClientRect();
+    const centerX = rect.left + rect.width / 2;
+    const centerY = rect.top + rect.height / 2;
+    const currentOffset = offsetRef.current;
+    const currentScale = scaleRef.current || 1;
+    const worldPoint = {
+      x: (event.clientX - centerX - currentOffset.x) / currentScale,
+      y: (event.clientY - centerY - currentOffset.y) / currentScale,
+    };
+    const threshold = isTouchTap ? 30 : 20;
+    const tappedMoveIndex = findClosestPlannedMoveIndex(worldPoint, threshold);
+    if (tappedMoveIndex == null) {
+      setHoveredMoveIndex(null);
+      return;
+    }
+
+    suppressNextClick.current = true;
+    setHoveredMoveIndex((current) => (current === tappedMoveIndex ? null : tappedMoveIndex));
   };
 
   const handleBoardClick = (event: React.MouseEvent) => {
@@ -1021,6 +1221,7 @@ const Board = memo(function Board({
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
+      onPointerCancel={handlePointerUp}
       onPointerLeave={handlePointerUp}
       onClick={handleBoardClick}
     >
@@ -1573,4 +1774,3 @@ const Board = memo(function Board({
 });
 
 export default Board;
-
