@@ -2911,8 +2911,103 @@ button:disabled {
 
   .lobby-card {
     width: 100%;
-    padding: 18px;
-    border-radius: 18px;
+    padding: 14px;
+    border-radius: 16px;
+  }
+
+  .lobby-brand {
+    padding: 4px 8px 4px 12px;
+  }
+
+  .lobby-brand-title {
+    font-size: clamp(34px, 9vw, 56px);
+    letter-spacing: 0.1em;
+  }
+
+  .lobby-title {
+    font-size: 20px;
+  }
+
+  .lobby-subtitle {
+    font-size: 12px;
+  }
+
+  .lobby-grid {
+    gap: 10px;
+    margin-top: 12px;
+  }
+
+  .create-header {
+    margin-top: 10px;
+    gap: 10px;
+  }
+
+  .visibility-toggle {
+    padding: 6px 8px;
+    font-size: 11px;
+  }
+
+  .players-row {
+    padding: 8px 10px;
+    border-radius: 12px;
+  }
+
+  .players-pill {
+    min-width: 30px;
+    padding: 6px 8px;
+    font-size: 11px;
+  }
+
+  .lobby-tabs {
+    gap: 8px;
+    margin-top: 12px;
+  }
+
+  .lobby-tab {
+    padding: 9px 12px;
+    border-radius: 12px;
+    font-size: 11px;
+  }
+
+  .lobby-grid label {
+    gap: 5px;
+    font-size: 11px;
+  }
+
+  .lobby-grid input,
+  .lobby-grid select {
+    padding: 7px 9px;
+    border-radius: 10px;
+  }
+
+  .lobby-grid label.toggle {
+    padding: 8px 10px;
+    border-radius: 12px;
+  }
+
+  .lobby-grid label.range {
+    padding: 10px;
+    border-radius: 12px;
+  }
+
+  .lobby-actions {
+    gap: 10px;
+    margin-top: 14px;
+  }
+
+  .lobby-actions button {
+    padding: 9px 10px;
+    border-radius: 12px;
+  }
+
+  .games-list {
+    gap: 8px;
+    margin-top: 12px;
+  }
+
+  .game-row {
+    padding: 10px;
+    border-radius: 12px;
   }
 
   .name-input-row {
@@ -2960,6 +3055,157 @@ button:disabled {
     width: 32px;
     height: 32px;
     border-radius: 10px;
+  }
+
+  .waiting-lobby {
+    gap: 10px;
+  }
+
+  .waiting-title {
+    font-size: 18px;
+  }
+
+  .waiting-count {
+    font-size: 13px;
+  }
+
+  .waiting-hint {
+    font-size: 12px;
+  }
+
+  .waiting-player {
+    padding: 8px 10px;
+  }
+
+  .waiting-player-you {
+    font-size: 11px;
+  }
+
+  .waiting-start {
+    margin-top: 12px;
+    padding: 10px 16px;
+    font-size: 13px;
+  }
+}
+
+@media (max-width: 900px) {
+  .lobby {
+    padding:
+      calc(14px + env(safe-area-inset-top))
+      calc(14px + env(safe-area-inset-right))
+      calc(14px + env(safe-area-inset-bottom))
+      calc(14px + env(safe-area-inset-left));
+  }
+
+  .lobby-shell {
+    gap: 10px;
+  }
+
+  .lobby-brand {
+    padding: 2px 8px 2px 12px;
+  }
+
+  .lobby-brand-title {
+    font-size: clamp(30px, 7vw, 54px);
+    letter-spacing: 0.1em;
+    filter: drop-shadow(0 6px 16px rgba(0, 0, 0, 0.45));
+    text-shadow:
+      0 0 10px rgba(121, 242, 255, 0.22),
+      0 0 26px rgba(208, 92, 255, 0.12);
+  }
+
+  .lobby-card {
+    padding: 14px;
+    border-radius: 16px;
+    width: min(560px, calc(100vw - 24px));
+    max-height: calc(100dvh - 24px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+    overflow: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .lobby-title {
+    font-size: 20px;
+  }
+
+  .lobby-grid {
+    gap: 10px;
+    margin-top: 12px;
+  }
+
+  .players-row {
+    padding: 8px 10px;
+    border-radius: 12px;
+  }
+
+  .visibility-toggle {
+    padding: 6px 8px;
+    font-size: 11px;
+  }
+
+  .lobby-grid input,
+  .lobby-grid select {
+    padding: 7px 9px;
+  }
+
+  .lobby-actions {
+    margin-top: 12px;
+    gap: 10px;
+  }
+
+  .lobby-actions button {
+    padding: 9px 10px;
+  }
+
+  .game-row {
+    padding: 10px;
+  }
+
+  .waiting-player {
+    padding: 8px 10px;
+  }
+
+  .waiting-title {
+    font-size: 16px;
+    margin-bottom: 10px;
+  }
+
+  .waiting-count {
+    font-size: 20px;
+    margin-bottom: 12px;
+  }
+
+  .waiting-code {
+    padding: 10px;
+    margin-bottom: 12px;
+  }
+
+  .waiting-code-value {
+    font-size: 16px;
+  }
+
+  .waiting-start {
+    padding: 10px 16px;
+    font-size: 13px;
+  }
+}
+
+@media (max-width: 900px) and (max-height: 520px) {
+  .lobby {
+    place-items: start;
+    overflow: auto;
+  }
+
+  .lobby-brand {
+    padding: 2px 8px 2px 12px;
+  }
+
+  .lobby-brand-title {
+    font-size: clamp(24px, 6vw, 44px);
+    letter-spacing: 0.1em;
+  }
+
+  .lobby-card {
+    margin-top: 8px;
   }
 }
 
@@ -4209,7 +4455,7 @@ button:disabled {
     }
   }
 
-  .sound-controls {
+  .app .sound-controls {
     left: calc(12px + env(safe-area-inset-left));
     right: auto;
     top: calc(12px + env(safe-area-inset-top) + 38px + 8px);
@@ -4217,6 +4463,29 @@ button:disabled {
     flex-direction: column;
     gap: 8px;
     z-index: 339;
+  }
+
+  .lobby .sound-controls {
+    left: 50%;
+    right: auto;
+    top: auto;
+    bottom: calc(12px + env(safe-area-inset-bottom));
+    transform: translateX(-50%);
+    flex-direction: row;
+    gap: 12px;
+    z-index: 339;
+  }
+
+  @media (min-width: 500px) {
+    .lobby .sound-controls {
+      left: auto;
+      right: calc(12px + env(safe-area-inset-right));
+      top: calc(12px + env(safe-area-inset-top));
+      bottom: auto;
+      transform: none;
+      flex-direction: column;
+      gap: 10px;
+    }
   }
 
   .sound-toggle {

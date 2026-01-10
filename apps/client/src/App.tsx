@@ -1561,9 +1561,6 @@ function App() {
   if (isWaitingForPlayers) {
     return (
       <div className="lobby">
-        <button type="button" className="lobby-fab" onClick={requestLeaveGame} aria-label="Return to lobby" title="Return to lobby">
-          <ExitIcon />
-        </button>
         <LobbyStars audioEl={backgroundAudioEl} />
         <div className="lobby-shell">
           <div className="lobby-brand" aria-label="Stellcon">
@@ -1619,6 +1616,9 @@ function App() {
                   Start with {players.length} Players
                 </button>
               ) : null}
+              <button type="button" className="secondary waiting-leave" onClick={requestLeaveGame} aria-label="Return to lobby">
+                <ExitIcon size={16} /> Lobby
+              </button>
             </div>
           </div>
         </div>
