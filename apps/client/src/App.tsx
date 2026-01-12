@@ -2129,38 +2129,6 @@ function App() {
                 <div className="muted">{powerupHelp[powerupDraft] || "Click a highlighted system to place."}</div>
               ) : null}
 
-              <div className="panel-subtitle">Planned Moves</div>
-              {orders.moves.length ? (
-                <div className="planned-moves-list" role="list" aria-label="Planned moves">
-                  {orders.moves.map((move, index) => (
-                    <div key={`move-${move.fromId}-${move.toId}-${index}`} className="planned-move-row" role="listitem">
-                      <div className="planned-move-label">
-                        <span className="planned-move-from">{move.fromId}</span>
-                        <span className="planned-move-arrow" aria-hidden="true">
-                          →
-                        </span>
-                        <span className="planned-move-to">{move.toId}</span>
-                      </div>
-                      <div className="planned-move-actions">
-                        <button type="button" className="planned-move-btn" onClick={() => handleAdjustMove(index, -1)} aria-label="Decrease fleets">
-                          −
-                        </button>
-                        <div className="planned-move-count" aria-label={`Fleets: ${move.count}`}>
-                          {move.count}
-                        </div>
-                        <button type="button" className="planned-move-btn" onClick={() => handleAdjustMove(index, 1)} aria-label="Increase fleets">
-                          +
-                        </button>
-                        <button type="button" className="planned-move-btn cancel" onClick={() => handleRemoveMove(index)} aria-label="Remove move">
-                          ×
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="muted">No moves queued yet. Tap a system, then tap a neighbor to queue a move.</div>
-              )}
             </div>
           </div>
         </aside>
@@ -2193,13 +2161,29 @@ function App() {
       <div className="overlay-bottom" aria-label="Game Status">
         <div className="bottom-hud">
           <div className="bottom-main">
-            <div className="countdown" role="status" aria-label="Turn Countdown">
-              <div className="countdown-track" aria-hidden="true">
-                <div className="countdown-fill" style={{ width: `${planningRatio * 100}%` }} />
+            <div className="countdown" aria-label="Turn Countdown">
+              <div className="countdown-head">
+                <div className="countdown-track" aria-hidden="true">
+                  <div className="countdown-fill" style={{ width: `${planningRatio * 100}%` }} />
+                </div>
+                <div className="countdown-actions">
+                  {playerId ? (
+                    <button
+                      type="button"
+                      className={`countdown-lock-btn${me?.locked ? " locked" : ""}`}
+                      onClick={handleLockIn}
+                      disabled={state.phase !== "planning" || Boolean(me?.locked)}
+                      aria-label={me?.locked ? "Locked in" : "Lock in"}
+                      title={me?.locked ? "Locked in" : "Lock in"}
+                    >
+                      {me?.locked ? "Locked In" : "Lock In"}
+                    </button>
+                  ) : null}
+                </div>
               </div>
-              <div className="countdown-text">
+              <div className="countdown-text" role="status" aria-label="Turn Countdown">
                 <span className="countdown-turn">
-                  T{state.turn}/{state.config.maxTurns}
+                  Turn {state.turn}/{state.config.maxTurns}
                 </span>
                 <span className="countdown-phase">
                   {state.phase === "planning" ? `${timer}s` : "Resolving"}

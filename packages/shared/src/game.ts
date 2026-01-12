@@ -460,6 +460,34 @@ function planResolution(game: GameState, rand: Rand) {
     );
   };
 
+  // First pass: collect all outgoing fleets to track which systems have incoming friendly fleets
+  const outgoingBySystem = new Map<string, Map<string, number>>();
+  for (const player of Object.values(game.players)) {
+    const moves = player.orders.moves || [];
+    for (const move of moves) {
+      const from = systemMap.get(move.fromId);
+      const to = systemMap.get(move.toId);
+      if (!from || !to) continue;
+      if (from.ownerId !== player.id) continue;
+      if (to.ownerId && isAllied(game, player.id, to.ownerId) && to.ownerId !== player.id) continue;
+
+      const isFriendlyTransfer = to.ownerId === player.id;
+      const isNeighbor = game.links[from.id]?.includes(to.id);
+      const canOwnedPath = isFriendlyTransfer && canMoveWithinOwned(from.id, to.id, player.id);
+      const canWormhole = hasActiveWormholeConnection(from.id, to.id);
+      if (!isNeighbor && !canWormhole && !canOwnedPath) continue;
+      if (to.ownerId && to.ownerId !== player.id && to.defenseNetTurns > 0) continue;
+
+      const amount = clamp(Number(move.count) || 0, 0, from.fleets);
+      if (amount <= 0) continue;
+
+      if (!outgoingBySystem.has(to.id)) outgoingBySystem.set(to.id, new Map());
+      const bucket = outgoingBySystem.get(to.id)!;
+      bucket.set(player.id, (bucket.get(player.id) || 0) + amount);
+    }
+  }
+
+  // Second pass: execute moves with knowledge of incoming fleets
   for (const player of Object.values(game.players)) {
     const moves = player.orders.moves || [];
     for (const move of moves) {
@@ -480,9 +508,14 @@ function planResolution(game: GameState, rand: Rand) {
       if (amount <= 0) continue;
 
       from.fleets -= amount;
+      // Only remove ownership if system has no fleets AND no friendly fleets are incoming
       if (from.fleets === 0 && from.ownerId) {
-        from.ownerId = null;
-        from.defenseNetTurns = 0;
+        const incomingToSystem = outgoingBySystem.get(from.id);
+        const hasFriendlyIncoming = incomingToSystem?.has(player.id);
+        if (!hasFriendlyIncoming) {
+          from.ownerId = null;
+          from.defenseNetTurns = 0;
+        }
       }
 
       if (to.ownerId === player.id) {
@@ -493,6 +526,47 @@ function planResolution(game: GameState, rand: Rand) {
       if (!incoming.has(to.id)) incoming.set(to.id, {});
       const bucket = incoming.get(to.id)!;
       bucket[player.id] = (bucket[player.id] || 0) + amount;
+    }
+  }
+
+  // Apply stellar bombs after fleet movements but before combat resolution
+  const canAttackFromOwned = (playerId: string, target: SystemState) => {
+    for (const system of systems) {
+      if (system.ownerId !== playerId) continue;
+      if ((game.links[system.id] || []).includes(target.id)) return true;
+    }
+    for (const wormhole of game.wormholes || []) {
+      if ((wormhole.turnsRemaining || 0) <= 0) continue;
+      const from = systemMap.get(wormhole.fromId);
+      const to = systemMap.get(wormhole.toId);
+      if (from?.ownerId === playerId && wormhole.toId === target.id) return true;
+      if (to?.ownerId === playerId && wormhole.fromId === target.id) return true;
+    }
+    return false;
+  };
+
+  for (const player of Object.values(game.players)) {
+    const powerupOrders = player.orders.powerups || [];
+    for (const action of powerupOrders) {
+      if (action.type !== "stellarBomb") continue;
+      if (!("targetId" in action)) continue;
+
+      const target = systemMap.get(action.targetId);
+      if (!target) continue;
+
+      const powerup = POWERUPS["stellarBomb"];
+      if (!powerup) continue;
+
+      // Check if player had resources (costs already deducted in applyPowerups)
+      if ((player.research?.[powerup.resource] || 0) < 0) continue;
+
+      if (target.ownerId === player.id) continue;
+      if (target.ownerId && isAllied(game, player.id, target.ownerId)) continue;
+      if (!canAttackFromOwned(player.id, target)) continue;
+      if (target.defenseNetTurns > 0) continue;
+
+      // Apply the fleet damage (costs already deducted in applyPowerups)
+      target.fleets = Math.max(0, Math.floor((target.fleets || 0) / 2));
     }
   }
 
@@ -697,7 +771,8 @@ function applyPowerups(game: GameState, rand: Rand) {
     }
   };
 
-  const applyAttackPowerups = (player, action) => {
+  // Deduct stellar bomb costs (but the actual fleet damage is applied later in planResolution/resolveMovements)
+  const applyAttackPowerupCosts = (player, action) => {
     const powerup = POWERUPS[action.type];
     if (!powerup) return;
     if (!canSpend(player, powerup)) return;
@@ -709,7 +784,8 @@ function applyPowerups(game: GameState, rand: Rand) {
       if (target.ownerId && isAllied(game, player.id, target.ownerId)) return;
       if (!canAttackFromOwned(player, target)) return;
       if (target.defenseNetTurns > 0) return;
-      target.fleets = Math.max(0, Math.floor((target.fleets || 0) / 2));
+      // Don't apply fleet damage here - that happens after fleet movements
+      // target.fleets = Math.max(0, Math.floor((target.fleets || 0) / 2));
       spend(player, powerup);
     }
   };
@@ -721,10 +797,11 @@ function applyPowerups(game: GameState, rand: Rand) {
     }
   }
 
+  // Deduct stellar bomb research costs (fleet damage applied after movements in planResolution/resolveMovements)
   for (const player of players) {
     for (const action of actionsByPlayer.get(player.id) || []) {
       if (action.type !== "stellarBomb") continue;
-      applyAttackPowerups(player, action);
+      applyAttackPowerupCosts(player, action);
     }
   }
 }
@@ -760,6 +837,35 @@ function resolveMovements(game: GameState, rand: Rand) {
   };
   const incoming = new Map();
 
+  // First pass: collect all outgoing fleets to track which systems have incoming friendly fleets
+  const outgoingBySystem = new Map<string, Map<string, number>>();
+  for (const player of Object.values(game.players)) {
+    const moves = player.orders.moves || [];
+    for (const move of moves) {
+      const from = systemById.get(move.fromId);
+      const to = systemById.get(move.toId);
+      if (!from || !to) continue;
+      if (from.ownerId !== player.id) continue;
+      if (to.ownerId && isAllied(game, player.id, to.ownerId) && to.ownerId !== player.id) continue;
+
+      const isFriendlyTransfer = to.ownerId === player.id;
+      const isNeighbor = game.links[from.id]?.includes(to.id);
+      const canOwnedPath = isFriendlyTransfer && canMoveWithinOwned(from.id, to.id, player.id);
+      const canWormhole = hasActiveWormholeConnection(from.id, to.id);
+      if (!isNeighbor && !canWormhole && !canOwnedPath) continue;
+
+      if (to.ownerId && to.ownerId !== player.id && to.defenseNetTurns > 0) continue;
+
+      const amount = clamp(Number(move.count) || 0, 0, from.fleets);
+      if (amount <= 0) continue;
+
+      if (!outgoingBySystem.has(to.id)) outgoingBySystem.set(to.id, new Map());
+      const bucket = outgoingBySystem.get(to.id)!;
+      bucket.set(player.id, (bucket.get(player.id) || 0) + amount);
+    }
+  }
+
+  // Second pass: execute moves with knowledge of incoming fleets
   for (const player of Object.values(game.players)) {
     const moves = player.orders.moves || [];
     for (const move of moves) {
@@ -781,6 +887,15 @@ function resolveMovements(game: GameState, rand: Rand) {
       if (amount <= 0) continue;
 
       from.fleets -= amount;
+      // Only remove ownership if system has no fleets AND no friendly fleets are incoming
+      if (from.fleets === 0 && from.ownerId) {
+        const incomingToSystem = outgoingBySystem.get(from.id);
+        const hasFriendlyIncoming = incomingToSystem?.has(player.id);
+        if (!hasFriendlyIncoming) {
+          from.ownerId = null;
+          from.defenseNetTurns = 0;
+        }
+      }
 
       if (to.ownerId === player.id) {
         to.fleets += amount;
@@ -792,6 +907,47 @@ function resolveMovements(game: GameState, rand: Rand) {
       }
       const targetIncoming = incoming.get(to.id);
       targetIncoming[player.id] = (targetIncoming[player.id] || 0) + amount;
+    }
+  }
+
+  // Apply stellar bombs after fleet movements but before combat resolution
+  const canAttackFromOwned = (playerId: string, target: SystemState) => {
+    for (const system of game.systems) {
+      if (system.ownerId !== playerId) continue;
+      if ((game.links[system.id] || []).includes(target.id)) return true;
+    }
+    for (const wormhole of game.wormholes || []) {
+      if ((wormhole.turnsRemaining || 0) <= 0) continue;
+      const from = systemById.get(wormhole.fromId);
+      const to = systemById.get(wormhole.toId);
+      if (from?.ownerId === playerId && wormhole.toId === target.id) return true;
+      if (to?.ownerId === playerId && wormhole.fromId === target.id) return true;
+    }
+    return false;
+  };
+
+  for (const player of Object.values(game.players)) {
+    const powerupOrders = player.orders.powerups || [];
+    for (const action of powerupOrders) {
+      if (action.type !== "stellarBomb") continue;
+      if (!("targetId" in action)) continue;
+
+      const target = systemById.get(action.targetId);
+      if (!target) continue;
+
+      const powerup = POWERUPS["stellarBomb"];
+      if (!powerup) continue;
+
+      // Check if player had resources (costs already deducted in applyPowerups)
+      if ((player.research?.[powerup.resource] || 0) < 0) continue;
+
+      if (target.ownerId === player.id) continue;
+      if (target.ownerId && isAllied(game, player.id, target.ownerId)) continue;
+      if (!canAttackFromOwned(player.id, target)) continue;
+      if (target.defenseNetTurns > 0) continue;
+
+      // Apply the fleet damage (costs already deducted in applyPowerups)
+      target.fleets = Math.max(0, Math.floor((target.fleets || 0) / 2));
     }
   }
 
