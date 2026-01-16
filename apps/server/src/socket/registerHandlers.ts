@@ -252,6 +252,43 @@ export function registerSocketHandlers(io: IO, store: GameStore) {
       }
     });
 
+    socket.on("rejoinGameByName", (payload, callback) => {
+      try {
+        const { gameId, name } = payload;
+        const game = ensureGame(store, gameId);
+        const normalizedName = normalizePlayerName(name).toLowerCase();
+
+        // Find player by normalized name
+        const playerEntry = Object.entries(game.players).find(
+          ([, player]) => normalizePlayerName(player.name).toLowerCase() === normalizedName
+        );
+
+        if (!playerEntry) {
+          throw new Error("Player not found in this game");
+        }
+
+        const [playerId, player] = playerEntry;
+
+        // Check if player is already connected from another socket
+        const existingSession = Array.from(store.sessions.values()).find(
+          (s) => s.playerId === playerId && s.gameId === gameId
+        );
+
+        if (existingSession && player.connected) {
+          throw new Error("Player is already connected to this game");
+        }
+
+        player.connected = true;
+        trackSession(store, socket.id, { gameId, playerId });
+        socket.join(`game:${gameId}`);
+
+        emitState(gameId);
+        callback?.({ gameId, playerId });
+      } catch (error) {
+        callback?.({ error: error instanceof Error ? error.message : String(error) });
+      }
+    });
+
     socket.on("leaveGame", (payload, callback) => {
       try {
         const session = getSession(store, socket.id);

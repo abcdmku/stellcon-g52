@@ -520,6 +520,7 @@ function App() {
     joinGame,
     watchGame,
     rejoinGame,
+    rejoinGameByName,
     leaveGame,
     listGames,
     updateOrders,
@@ -1550,11 +1551,19 @@ function App() {
   // For join prompt: calculate available colors and existing names
   const takenColors = players.map((p) => p.color);
   const availableColors = PLAYER_COLORS.filter((c) => !takenColors.includes(c));
-  const existingNames = players.map((p) => (p.name || "").toLowerCase().trim());
   const trimmedJoinName = joinName.trim().replace(/\s+/g, " ");
   const isJoinNameValid = trimmedJoinName.length >= 2;
-  const isJoinNameUnique = !existingNames.includes(trimmedJoinName.toLowerCase());
-  const isJoinNameReady = isJoinNameValid && isJoinNameUnique;
+  // Check if name matches a disconnected player (can rejoin)
+  const disconnectedPlayerMatch = players.find(
+    (p) => (p.name || "").toLowerCase().trim() === trimmedJoinName.toLowerCase() && p.connected === false
+  );
+  // Check if name matches a connected player (cannot use this name)
+  const connectedPlayerMatch = players.find(
+    (p) => (p.name || "").toLowerCase().trim() === trimmedJoinName.toLowerCase() && p.connected !== false
+  );
+  const isJoinNameUnique = !connectedPlayerMatch;
+  const canRejoinAsPlayer = isJoinNameValid && !!disconnectedPlayerMatch;
+  const isJoinNameReady = isJoinNameValid && isJoinNameUnique && !disconnectedPlayerMatch;
   const canJoinGame = showJoinPrompt && !playerId && availableColors.length > 0 && players.length < state.config.maxPlayers;
 
   // Show lobby with waiting overlay while waiting for players
@@ -1644,8 +1653,11 @@ function App() {
                   placeholder="Enter your name"
                   autoFocus
                 />
-                {!isJoinNameUnique && trimmedJoinName.length > 0 ? (
+                {!isJoinNameUnique && !canRejoinAsPlayer && trimmedJoinName.length > 0 ? (
                   <span className="join-prompt-name-error">Name already taken</span>
+                ) : null}
+                {canRejoinAsPlayer ? (
+                  <span className="join-prompt-name-hint">Player found - you can rejoin!</span>
                 ) : null}
               </label>
               {isJoinNameReady ? (
@@ -1666,7 +1678,36 @@ function App() {
                 </div>
               ) : null}
               <div className="join-prompt-actions">
-                {isJoinNameReady ? (
+                {canRejoinAsPlayer ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!gameId) return;
+                      window.localStorage.setItem("stellcon.name", joinName);
+                      rejoinGameByName({ name: trimmedJoinName, gameId }, (response) => {
+                        if (!response) {
+                          setJoinError("No response from server.");
+                          return;
+                        }
+                        if ("error" in response) {
+                          setJoinError(response.error);
+                          return;
+                        }
+                        setPlayerId(response.playerId);
+                        setShowJoinPrompt(false);
+                        setJoinError("");
+                        resetOrders();
+                        setSelectedId(null);
+                        window.localStorage.setItem(
+                          "stellcon.session",
+                          JSON.stringify({ gameId: response.gameId, playerId: response.playerId })
+                        );
+                      });
+                    }}
+                  >
+                    Rejoin Game
+                  </button>
+                ) : isJoinNameReady ? (
                   <button
                     type="button"
                     disabled={!joinColor}
@@ -1853,10 +1894,10 @@ function App() {
         onTabChange={setEndgameStatsTab}
       />
 
-      {canJoinGame ? (
+      {canJoinGame || (showJoinPrompt && !playerId && canRejoinAsPlayer) ? (
         <div className="join-prompt-overlay">
           <div className="join-prompt-card">
-            <div className="join-prompt-title">Join Game</div>
+            <div className="join-prompt-title">{canRejoinAsPlayer ? "Rejoin Game" : "Join Game"}</div>
             <div className="join-prompt-subtitle">
               {players.length} / {state.config.maxPlayers} players
             </div>
@@ -1874,8 +1915,11 @@ function App() {
                 placeholder="Enter your name"
                 autoFocus
               />
-              {!isJoinNameUnique && trimmedJoinName.length > 0 ? (
+              {!isJoinNameUnique && !canRejoinAsPlayer && trimmedJoinName.length > 0 ? (
                 <span className="join-prompt-name-error">Name already taken</span>
+              ) : null}
+              {canRejoinAsPlayer ? (
+                <span className="join-prompt-name-hint">Player found - you can rejoin!</span>
               ) : null}
             </label>
             {isJoinNameReady ? (
@@ -1896,7 +1940,36 @@ function App() {
               </div>
             ) : null}
             <div className="join-prompt-actions">
-              {isJoinNameReady ? (
+              {canRejoinAsPlayer ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!gameId) return;
+                    window.localStorage.setItem("stellcon.name", joinName);
+                    rejoinGameByName({ name: trimmedJoinName, gameId }, (response) => {
+                      if (!response) {
+                        setJoinError("No response from server.");
+                        return;
+                      }
+                      if ("error" in response) {
+                        setJoinError(response.error);
+                        return;
+                      }
+                      setPlayerId(response.playerId);
+                      setShowJoinPrompt(false);
+                      setJoinError("");
+                      resetOrders();
+                      setSelectedId(null);
+                      window.localStorage.setItem(
+                        "stellcon.session",
+                        JSON.stringify({ gameId: response.gameId, playerId: response.playerId })
+                      );
+                    });
+                  }}
+                >
+                  Rejoin Game
+                </button>
+              ) : isJoinNameReady ? (
                 <button
                   type="button"
                   disabled={!joinColor}

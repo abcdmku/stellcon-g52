@@ -4183,6 +4183,11 @@ button:disabled {
   font-size: 12px;
 }
 
+.join-prompt-name-hint {
+  color: #6bff9b;
+  font-size: 12px;
+}
+
 .join-prompt-colors {
   display: flex;
   gap: 8px;

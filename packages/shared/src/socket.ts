@@ -22,6 +22,11 @@ export interface RejoinGamePayload {
   playerId: string;
 }
 
+export interface RejoinGameByNamePayload {
+  gameId: string;
+  name: string;
+}
+
 export interface UpdateOrdersPayload {
   orders: Orders;
 }
@@ -76,6 +81,7 @@ export interface ClientToServerEvents {
   listGames: (payload: unknown, callback?: (response: GamesListResponse) => void) => void;
   watchGame: (payload: WatchGamePayload, callback?: (response: MaybeError<OkResponse>) => void) => void;
   rejoinGame: (payload: RejoinGamePayload, callback?: (response: MaybeError<GameIdResponse>) => void) => void;
+  rejoinGameByName: (payload: RejoinGameByNamePayload, callback?: (response: MaybeError<GameIdResponse>) => void) => void;
   leaveGame: (payload: unknown, callback?: (response: MaybeError<OkResponse>) => void) => void;
   updateOrders: (payload: UpdateOrdersPayload, callback?: (response: MaybeError<OkResponse>) => void) => void;
   lockIn: (payload: unknown, callback?: (response: MaybeError<OkResponse>) => void) => void;

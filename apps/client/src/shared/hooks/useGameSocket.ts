@@ -13,6 +13,7 @@ import type {
   ServerToClientEvents,
   WatchGamePayload,
   RejoinGamePayload,
+  RejoinGameByNamePayload,
   GameIdResponse,
   UpdateOrdersPayload,
   GamesListResponse,
@@ -88,6 +89,13 @@ export function useGameSocket(serverUrl: string, demoMode: boolean, callbacks: S
     [socket]
   );
 
+  const rejoinGameByName = useCallback(
+    (payload: RejoinGameByNamePayload, callback?: (response: MaybeError<GameIdResponse>) => void) => {
+      socket?.emit("rejoinGameByName", payload, callback);
+    },
+    [socket]
+  );
+
   const leaveGame = useCallback(
     (callback?: (response: MaybeError<OkResponse>) => void) => {
       socket?.emit("leaveGame", null, callback);
@@ -157,6 +165,7 @@ export function useGameSocket(serverUrl: string, demoMode: boolean, callbacks: S
     joinGame,
     watchGame,
     rejoinGame,
+    rejoinGameByName,
     leaveGame,
     listGames,
     updateOrders,
