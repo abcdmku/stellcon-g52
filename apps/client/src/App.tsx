@@ -1,7 +1,7 @@
 import type { CSSProperties } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { buildConnectedComponentIndex, computeIncome, inSameConnectedComponent, PLAYER_COLORS, POWERUPS, RESOURCE_COLORS, RESOURCE_TYPES, RESOLUTION_TRAVEL_MS } from "@stellcon/shared";
-import type { BotDifficulty, GameListItem, GameState, Orders, PowerupKey } from "@stellcon/shared";
+import type { BotDifficulty, BotPlaySpeed, GameListItem, GameState, Orders, PowerupKey } from "@stellcon/shared";
 import { demoPlayerId, demoState } from "./demoState.js";
 import Board from "./features/board/Board";
 import Lobby from "./features/lobby/Lobby.jsx";
@@ -531,8 +531,10 @@ function App() {
     retractAlliance,
     declineAlliance,
     startGameEarly,
+    startGame,
     addBot,
     removeBot,
+    setBotPlaySpeed,
   } = useGameSocket(SERVER_URL, DEMO_MODE, socketCallbacks);
 
   const me = playerId && state?.players ? state.players[playerId] : null;
@@ -1549,7 +1551,8 @@ function App() {
   const isComplete = state.phase === "complete";
   const isTie = state.winnerId === null && isComplete;
   const winnerPlayer = isTie ? null : (state.winnerId ? players.find((player) => player.id === state.winnerId) : rankedPlayers[0] || null);
-  const isWaitingForPlayers = state.turn === 1 && players.length < state.config.maxPlayers;
+  const isInRoomLobby = state.phase === "planning" && state.turnEndsAt === null;
+  const isWaitingForPlayers = isInRoomLobby;
   const seatsRemaining = Math.max(0, state.config.maxPlayers - players.length);
 
   // For join prompt: calculate available colors and existing names
@@ -1568,7 +1571,18 @@ function App() {
   const isJoinNameUnique = !connectedPlayerMatch;
   const canRejoinAsPlayer = isJoinNameValid && !!disconnectedPlayerMatch;
   const isJoinNameReady = isJoinNameValid && isJoinNameUnique && !disconnectedPlayerMatch;
-  const canJoinGame = showJoinPrompt && !playerId && availableColors.length > 0 && players.length < state.config.maxPlayers;
+  const canJoinGame =
+    showJoinPrompt &&
+    !playerId &&
+    isInRoomLobby &&
+    availableColors.length > 0 &&
+    players.length < state.config.maxPlayers;
+
+  const hostSocketId = state.lobby?.hostSocketId ?? null;
+  const isHost = Boolean(hostSocketId && socket?.id && socket.id === hostSocketId);
+  const lobbyBotPlaySpeed = (state.lobby?.botPlaySpeed ?? "instant") as BotPlaySpeed;
+  const spectatorCount = (state.lobby?.members || []).filter((member) => member.role === "spectator").length;
+  const hostPlayerId = (state.lobby?.members || []).find((member) => member.socketId === hostSocketId)?.playerId ?? null;
 
   // Show lobby with waiting overlay while waiting for players
   if (isWaitingForPlayers) {
@@ -1583,7 +1597,7 @@ function App() {
             <div className="waiting-lobby">
               <div className="waiting-title">Waiting for Players</div>
               <div className="waiting-count">
-                {players.length} / {state.config.maxPlayers} Commanders
+                {players.length} / {state.config.maxPlayers} Commanders{spectatorCount ? ` • ${spectatorCount} watching` : ""}
               </div>
               <div className="waiting-players">
                 {players.map((player) => (
@@ -1591,6 +1605,7 @@ function App() {
                     <span className="waiting-player-dot" />
                     <span className="waiting-player-name">
                       {player.name}
+                      {player.id === hostPlayerId ? <span className="waiting-player-bot-tag">HOST</span> : null}
                       {player.isBot ? (
                         <span className="waiting-player-bot-tag">
                           AI{player.botDifficulty ? ` · ${String(player.botDifficulty).toUpperCase()}` : ""}
@@ -1598,7 +1613,7 @@ function App() {
                       ) : null}
                     </span>
                     {player.id === playerId ? <span className="waiting-player-you">(You)</span> : null}
-                    {playerId && player.isBot && !DEMO_MODE ? (
+                    {isHost && player.isBot && !DEMO_MODE ? (
                       <button
                         type="button"
                         className="waiting-bot-remove"
@@ -1636,7 +1651,30 @@ function App() {
                 <span className={`waiting-code-hint ${codeCopied ? "copied" : ""}`}>{codeCopied ? "Copied!" : "Click to copy"}</span>
               </button>
               <div className="waiting-hint">Share the game code with friends to join</div>
-              {playerId && !DEMO_MODE ? (
+              {!DEMO_MODE ? (
+                <div className="waiting-bots">
+                  <div className="waiting-bots-title">Bot Speed</div>
+                  <div className="waiting-bots-controls">
+                    <select
+                      className="waiting-bots-select"
+                      value={lobbyBotPlaySpeed}
+                      disabled={!isHost}
+                      onChange={(e) => {
+                        setBotPlaySpeed({ speed: e.target.value as BotPlaySpeed }, (response) => {
+                          if (response && "error" in response) setError(response.error);
+                        });
+                      }}
+                      aria-label="Bot play speed"
+                    >
+                      <option value="instant">Instant</option>
+                      <option value="fast">Fast</option>
+                      <option value="normal">Normal</option>
+                      <option value="slow">Slow</option>
+                    </select>
+                  </div>
+                </div>
+              ) : null}
+              {isHost && !DEMO_MODE ? (
                 <div className="waiting-bots">
                   <div className="waiting-bots-title">Add AI Commander</div>
                   <div className="waiting-bots-controls">
@@ -1665,19 +1703,47 @@ function App() {
                   </div>
                 </div>
               ) : null}
-              {playerId && state.config.maxPlayers > 2 && players.length >= 2 ? (
+              {!DEMO_MODE && isHost ? (
                 <button
                   type="button"
                   className="waiting-start"
+                  disabled={players.length < 2}
                   onClick={() => {
-                    startGameEarly((response) => {
+                    startGame((response) => {
                       if (response && "error" in response) {
                         setError(response.error);
                       }
                     });
                   }}
                 >
-                  Start with {players.length} Players
+                  Start Game
+                </button>
+              ) : null}
+              {!DEMO_MODE && !isHost ? <div className="waiting-hint">Waiting for host to start…</div> : null}
+              {!DEMO_MODE && !playerId && seatsRemaining > 0 ? (
+                <button type="button" className="waiting-start" onClick={() => setShowJoinPrompt(true)}>
+                  Join as Player
+                </button>
+              ) : null}
+              {!DEMO_MODE && playerId ? (
+                <button
+                  type="button"
+                  className="secondary waiting-leave"
+                  onClick={() => {
+                    if (!gameId) return;
+                    watchGame({ gameId }, (response) => {
+                      if (response && "error" in response) {
+                        setError(response.error);
+                        return;
+                      }
+                      setPlayerId(null);
+                      resetOrders();
+                      setSelectedId(null);
+                      window.localStorage.removeItem("stellcon.session");
+                    });
+                  }}
+                >
+                  Watch Only
                 </button>
               ) : null}
               <button type="button" className="secondary waiting-leave" onClick={requestLeaveGame} aria-label="Return to lobby">
@@ -1687,10 +1753,10 @@ function App() {
           </div>
         </div>
         {leaveConfirmModal}
-        {canJoinGame ? (
+        {canJoinGame || (showJoinPrompt && !playerId && canRejoinAsPlayer) ? (
           <div className="join-prompt-overlay">
             <div className="join-prompt-card">
-              <div className="join-prompt-title">Join Game</div>
+              <div className="join-prompt-title">{canRejoinAsPlayer ? "Rejoin Game" : "Join Game"}</div>
               <div className="join-prompt-subtitle">
                 {players.length} / {state.config.maxPlayers} players
               </div>

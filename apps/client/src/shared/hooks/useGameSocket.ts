@@ -13,6 +13,7 @@ import type {
   RemoveBotPayload,
   RetractAlliancePayload,
   ServerToClientEvents,
+  SetBotPlaySpeedPayload,
   WatchGamePayload,
   RejoinGamePayload,
   RejoinGameByNamePayload,
@@ -161,6 +162,20 @@ export function useGameSocket(serverUrl: string, demoMode: boolean, callbacks: S
     [socket]
   );
 
+  const startGame = useCallback(
+    (callback?: (response: MaybeError<OkResponse>) => void) => {
+      socket?.emit("startGame", null, callback);
+    },
+    [socket]
+  );
+
+  const setBotPlaySpeed = useCallback(
+    (payload: SetBotPlaySpeedPayload, callback?: (response: MaybeError<OkResponse>) => void) => {
+      socket?.emit("setBotPlaySpeed", payload, callback);
+    },
+    [socket]
+  );
+
   const addBot = useCallback(
     (payload: AddBotPayload, callback?: (response: MaybeError<OkResponse>) => void) => {
       socket?.emit("addBot", payload, callback);
@@ -191,7 +206,9 @@ export function useGameSocket(serverUrl: string, demoMode: boolean, callbacks: S
     retractAlliance,
     declineAlliance,
     startGameEarly,
+    startGame,
     addBot,
     removeBot,
+    setBotPlaySpeed,
   };
 }

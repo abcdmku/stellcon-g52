@@ -12,7 +12,7 @@ import {
   startPlanningPhase,
   submitOrders,
 } from "@stellcon/shared";
-import type { BotDifficulty, ClientToServerEvents, ServerToClientEvents, GameState } from "@stellcon/shared";
+import type { BotDifficulty, BotPlaySpeed, ClientToServerEvents, ServerToClientEvents, GameState } from "@stellcon/shared";
 import {
   clearSession,
   deleteGame,
@@ -55,12 +55,68 @@ function isBotDifficulty(value: unknown): value is BotDifficulty {
   return value === "easy" || value === "medium" || value === "hard";
 }
 
+function isBotPlaySpeed(value: unknown): value is BotPlaySpeed {
+  return value === "slow" || value === "normal" || value === "fast" || value === "instant";
+}
+
 export function registerSocketHandlers(io: IO, store: GameStore) {
+  const BOT_THINK_DELAY_MS = {
+    slow: 2000,
+    normal: 900,
+    fast: 250,
+    instant: 0,
+  } as const satisfies Record<BotPlaySpeed, number>;
+
+  const getHostSocketId = (gameId: string) => {
+    let host: { socketId: string; joinedAt: number } | null = null;
+    for (const [socketId, session] of getSocketsForGame(store, gameId)) {
+      if (!host || session.joinedAt < host.joinedAt) {
+        host = { socketId, joinedAt: session.joinedAt };
+      }
+    }
+    return host?.socketId ?? null;
+  };
+
+  const ensureHost = (socketId: string, gameId: string) => {
+    const hostSocketId = getHostSocketId(gameId);
+    if (!hostSocketId || hostSocketId !== socketId) {
+      throw new Error("Only the room host can do that");
+    }
+  };
+
+  const buildLobbyState = (gameId: string) => {
+    const game = getGame(store, gameId);
+    if (!game) {
+      return { hostSocketId: null, members: [], botPlaySpeed: "instant" as const };
+    }
+
+    const record = ensureGameRecord(store, gameId);
+    const hostSocketId = getHostSocketId(gameId);
+    const members = getSocketsForGame(store, gameId)
+      .map(([socketId, session]) => {
+        const player = session.playerId ? game.players[session.playerId] : null;
+        const playerId = player ? session.playerId : null;
+        return {
+          socketId,
+          name: player?.name ?? null,
+          role: playerId ? ("player" as const) : ("spectator" as const),
+          playerId,
+          joinedAt: session.joinedAt,
+        };
+      })
+      .sort((a, b) => a.joinedAt - b.joinedAt);
+
+    return { hostSocketId, members, botPlaySpeed: record.botPlaySpeed };
+  };
+
   const emitState = (gameId: string) => {
     const game = getGame(store, gameId);
     if (!game) return;
+    const lobby = buildLobbyState(gameId);
     for (const [socketId, session] of getSocketsForGame(store, gameId)) {
-      const state = redactGameState(game, session.playerId);
+      const viewerId = session.playerId && game.players[session.playerId] ? session.playerId : null;
+      const state = redactGameState(game, viewerId);
+      state.lobby = lobby;
       io.to(socketId).emit("gameState", state);
     }
   };
@@ -100,7 +156,7 @@ export function registerSocketHandlers(io: IO, store: GameStore) {
     }
   };
 
-  const runBotsForGame = (gameId: string) => {
+  const runBotsForGameNow = (gameId: string) => {
     const game = getGame(store, gameId);
     if (!game) return;
     const record = getGameRecord(store, gameId);
@@ -141,6 +197,32 @@ export function registerSocketHandlers(io: IO, store: GameStore) {
     }
   };
 
+  const scheduleBotsForGame = (gameId: string) => {
+    const game = getGame(store, gameId);
+    if (!game) return;
+    const record = getGameRecord(store, gameId);
+    if (!record?.started) return;
+    if (game.phase !== "planning") return;
+
+    const existing = store.botTimers.get(gameId);
+    if (existing) {
+      clearTimeout(existing);
+      store.botTimers.delete(gameId);
+    }
+
+    const delayMs = BOT_THINK_DELAY_MS[record.botPlaySpeed] ?? 0;
+    if (delayMs <= 0) {
+      runBotsForGameNow(gameId);
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      store.botTimers.delete(gameId);
+      runBotsForGameNow(gameId);
+    }, delayMs);
+    store.botTimers.set(gameId, timer);
+  };
+
   const scheduleFinalize = (game: GameState) => {
     if (store.resolveTimers.has(game.id)) {
       clearTimeout(store.resolveTimers.get(game.id));
@@ -155,7 +237,7 @@ export function registerSocketHandlers(io: IO, store: GameStore) {
       try {
         store.resolveTimers.delete(game.id);
         finalizeResolution(game);
-        runBotsForGame(game.id);
+        scheduleBotsForGame(game.id);
         clearPendingAlliancesForGame(game.id);
         emitState(game.id);
         emitGamesList();
@@ -169,7 +251,7 @@ export function registerSocketHandlers(io: IO, store: GameStore) {
           delete game.resolutionBattles;
           delete game.resolutionPlan;
           startPlanningPhase(game);
-          runBotsForGame(game.id);
+          scheduleBotsForGame(game.id);
           emitState(game.id);
           emitGamesList();
         } catch (recoverError) {
@@ -178,16 +260,6 @@ export function registerSocketHandlers(io: IO, store: GameStore) {
       }
     }, delay);
     store.resolveTimers.set(game.id, timer);
-  };
-
-  const maybeStartGame = (game: GameState) => {
-    const players = Object.keys(game.players).length;
-    const record = ensureGameRecord(store, game.id);
-    if (!record.started && players >= game.config.maxPlayers) {
-      record.started = true;
-      startGame(game);
-      runBotsForGame(game.id);
-    }
   };
 
   const createBotName = (game: GameState, difficulty: BotDifficulty) => {
@@ -235,10 +307,9 @@ export function registerSocketHandlers(io: IO, store: GameStore) {
         const playerName = ensureUniqueName(game, name);
         addPlayer(game, { id: playerId, name: playerName, color });
 
-        trackSession(store, socket.id, { gameId, playerId });
+        trackSession(store, socket.id, { gameId, playerId, joinedAt: Date.now() });
         socket.join(`game:${gameId}`);
 
-        maybeStartGame(game);
         emitState(gameId);
         emitGamesList();
 
@@ -260,16 +331,26 @@ export function registerSocketHandlers(io: IO, store: GameStore) {
       try {
         const { gameId, name, color } = payload;
         const game = ensureGame(store, gameId);
+        const record = ensureGameRecord(store, game.id);
+        if (record.started) {
+          throw new Error("Game already started (watch only)");
+        }
+
+        const existingSession = getSession(store, socket.id);
+        if (existingSession?.gameId === gameId && existingSession.playerId) {
+          throw new Error("Already joined as a player");
+        }
+
         if (Object.keys(game.players).length >= game.config.maxPlayers) {
           throw new Error("Game is full");
         }
         const playerId = nanoid(8);
         addPlayer(game, { id: playerId, name: ensureUniqueName(game, name), color });
 
-        trackSession(store, socket.id, { gameId, playerId });
+        const joinedAt = existingSession?.gameId === gameId ? existingSession.joinedAt : Date.now();
+        trackSession(store, socket.id, { gameId, playerId, joinedAt });
         socket.join(`game:${gameId}`);
 
-        maybeStartGame(game);
         emitState(gameId);
         emitGamesList();
 
@@ -287,10 +368,27 @@ export function registerSocketHandlers(io: IO, store: GameStore) {
     socket.on("watchGame", (payload, callback) => {
       try {
         const { gameId } = payload;
-        ensureGame(store, gameId);
-        trackSession(store, socket.id, { gameId, playerId: null });
+        const game = ensureGame(store, gameId);
+        const record = ensureGameRecord(store, gameId);
+        const existingSession = getSession(store, socket.id);
+        const joinedAt = existingSession?.gameId === gameId ? existingSession.joinedAt : Date.now();
+
+        if (record.started && existingSession?.playerId) {
+          throw new Error("Cannot switch to watching after the game starts");
+        }
+
+        let removedPlayer = false;
+        if (!record.started && existingSession?.gameId === gameId && existingSession.playerId) {
+          if (game.players[existingSession.playerId]) {
+            delete game.players[existingSession.playerId];
+            removedPlayer = true;
+          }
+        }
+
+        trackSession(store, socket.id, { gameId, playerId: null, joinedAt });
         socket.join(`game:${gameId}`);
         emitState(gameId);
+        if (removedPlayer) emitGamesList();
         callback?.({ ok: true });
       } catch (error) {
         callback?.({ error: error instanceof Error ? error.message : String(error) });
@@ -306,7 +404,9 @@ export function registerSocketHandlers(io: IO, store: GameStore) {
         if (player.isBot) throw new Error("Cannot rejoin as an AI player");
 
         player.connected = true;
-        trackSession(store, socket.id, { gameId, playerId });
+        const existingSession = getSession(store, socket.id);
+        const joinedAt = existingSession?.gameId === gameId ? existingSession.joinedAt : Date.now();
+        trackSession(store, socket.id, { gameId, playerId, joinedAt });
         socket.join(`game:${gameId}`);
 
         emitState(gameId);
@@ -344,7 +444,9 @@ export function registerSocketHandlers(io: IO, store: GameStore) {
         }
 
         player.connected = true;
-        trackSession(store, socket.id, { gameId, playerId });
+        const currentSession = getSession(store, socket.id);
+        const joinedAt = currentSession?.gameId === gameId ? currentSession.joinedAt : Date.now();
+        trackSession(store, socket.id, { gameId, playerId, joinedAt });
         socket.join(`game:${gameId}`);
 
         emitState(gameId);
@@ -380,8 +482,8 @@ export function registerSocketHandlers(io: IO, store: GameStore) {
         clearSession(store, socket.id);
 
         if (game) {
-          const hasConnectedPlayers = getSocketsForGame(store, game.id).some(([, s]) => s.playerId !== null);
-          if (!hasConnectedPlayers) {
+          const remainingSockets = getSocketsForGame(store, game.id);
+          if (remainingSockets.length === 0) {
             deleteGame(store, game.id);
           } else {
             emitState(game.id);
@@ -522,7 +624,7 @@ export function registerSocketHandlers(io: IO, store: GameStore) {
       try {
         const session = getSession(store, socket.id);
         if (!session) throw new Error("Not in game");
-        if (!session.playerId) throw new Error("Spectators cannot add bots");
+        ensureHost(socket.id, session.gameId);
         const game = ensureGame(store, session.gameId);
         const record = ensureGameRecord(store, game.id);
         if (record.started) throw new Error("Game already started");
@@ -539,7 +641,6 @@ export function registerSocketHandlers(io: IO, store: GameStore) {
         botPlayer.locked = false;
         store.bots.set(botPlayerId, { gameId: game.id, playerId: botPlayerId, difficulty: payload.difficulty });
 
-        maybeStartGame(game);
         emitState(game.id);
         emitGamesList();
         callback?.({ ok: true });
@@ -552,7 +653,7 @@ export function registerSocketHandlers(io: IO, store: GameStore) {
       try {
         const session = getSession(store, socket.id);
         if (!session) throw new Error("Not in game");
-        if (!session.playerId) throw new Error("Spectators cannot remove bots");
+        ensureHost(socket.id, session.gameId);
         const game = ensureGame(store, session.gameId);
         const record = ensureGameRecord(store, game.id);
         if (record.started) throw new Error("Game already started");
@@ -572,26 +673,53 @@ export function registerSocketHandlers(io: IO, store: GameStore) {
       }
     });
 
-    socket.on("startGameEarly", (payload, callback) => {
+    socket.on("setBotPlaySpeed", (payload, callback) => {
       try {
         const session = getSession(store, socket.id);
         if (!session) throw new Error("Not in game");
-        if (!session.playerId) throw new Error("Spectators cannot start the game");
+        ensureHost(socket.id, session.gameId);
+        if (!payload || !isBotPlaySpeed(payload.speed)) throw new Error("Invalid bot speed");
+
+        const record = ensureGameRecord(store, session.gameId);
+        record.botPlaySpeed = payload.speed;
+        scheduleBotsForGame(session.gameId);
+        emitState(session.gameId);
+        callback?.({ ok: true });
+      } catch (error) {
+        callback?.({ error: error instanceof Error ? error.message : String(error) });
+      }
+    });
+
+    const startGameFromLobby = (callback?: (response: { ok: true } | { error: string }) => void) => {
+      try {
+        const session = getSession(store, socket.id);
+        if (!session) throw new Error("Not in game");
+        ensureHost(socket.id, session.gameId);
+
         const game = ensureGame(store, session.gameId);
         const record = ensureGameRecord(store, game.id);
         if (record.started) throw new Error("Game already started");
+
         const players = Object.keys(game.players).length;
         if (players < 2) throw new Error("Need at least 2 players to start");
-        if (game.config.maxPlayers < 3) throw new Error("Cannot start early for 2-player games");
+
         record.started = true;
         startGame(game);
-        runBotsForGame(game.id);
+        scheduleBotsForGame(game.id);
         emitState(game.id);
         emitGamesList();
         callback?.({ ok: true });
       } catch (error) {
         callback?.({ error: error instanceof Error ? error.message : String(error) });
       }
+    };
+
+    socket.on("startGame", (payload, callback) => {
+      startGameFromLobby(callback);
+    });
+
+    socket.on("startGameEarly", (payload, callback) => {
+      startGameFromLobby(callback);
     });
 
     socket.on("disconnect", () => {
@@ -606,13 +734,11 @@ export function registerSocketHandlers(io: IO, store: GameStore) {
         // (before clearing this session)
         if (game) {
           const remainingSockets = getSocketsForGame(store, game.id);
-          const hasOtherConnectedPlayers = remainingSockets.some(
-            ([socketId, s]) => socketId !== socket.id && s.playerId !== null
-          );
+          const hasOtherSockets = remainingSockets.some(([socketId]) => socketId !== socket.id);
 
           clearSession(store, socket.id);
 
-          if (!hasOtherConnectedPlayers) {
+          if (!hasOtherSockets) {
             // No other players left in the game, delete the room
             deleteGame(store, game.id);
             emitGamesList();

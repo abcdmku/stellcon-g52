@@ -3,6 +3,8 @@ export type PowerupKey = "stellarBomb" | "terraform" | "defenseNet" | "wormhole"
 export type Phase = "planning" | "resolving" | "complete";
 export type MapSize = "small" | "medium" | "large" | "massive";
 export type BotDifficulty = "easy" | "medium" | "hard";
+export type BotPlaySpeed = "slow" | "normal" | "fast" | "instant";
+export type LobbyRole = "player" | "spectator";
 
 export type ResourceMap = Record<ResourceType, number>;
 
@@ -137,11 +139,26 @@ export interface GameState {
   players: Record<string, PlayerState>;
   log: unknown[];
   winnerId: string | null;
+  lobby?: LobbyState;
   revealedMoves?: RevealedMove[];
   resolutionStartedAt?: number;
   resolutionEndsAt?: number;
   resolutionBattles?: ResolutionBattle[];
   resolutionPlan?: ResolutionPlan;
+}
+
+export interface LobbyMember {
+  socketId: string;
+  name: string | null;
+  role: LobbyRole;
+  playerId: string | null;
+  joinedAt: number;
+}
+
+export interface LobbyState {
+  hostSocketId: string | null;
+  members: LobbyMember[];
+  botPlaySpeed: BotPlaySpeed;
 }
 
 export interface GameListItem {

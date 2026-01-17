@@ -1,15 +1,18 @@
 import { PLAYER_COLORS } from "@stellcon/shared";
-import type { BotDifficulty, GameListItem, GameState } from "@stellcon/shared";
+import type { BotDifficulty, BotPlaySpeed, GameListItem, GameState } from "@stellcon/shared";
 
 export type Session = {
   gameId: string;
   playerId: string | null;
+  joinedAt: number;
 };
 
 export type ResolveTimer = ReturnType<typeof setTimeout>;
+export type BotTimer = ReturnType<typeof setTimeout>;
 
 export type GameRecord = {
   started: boolean;
+  botPlaySpeed: BotPlaySpeed;
 };
 
 export type BotRecord = {
@@ -24,6 +27,7 @@ export type GameStore = {
   sessions: Map<string, Session>;
   pendingAlliances: Map<string, boolean>;
   resolveTimers: Map<string, ResolveTimer>;
+  botTimers: Map<string, BotTimer>;
   bots: Map<string, BotRecord>;
 };
 
@@ -34,6 +38,7 @@ export function createGameStore(): GameStore {
     sessions: new Map(),
     pendingAlliances: new Map(),
     resolveTimers: new Map(),
+    botTimers: new Map(),
     bots: new Map(),
   };
 }
@@ -49,7 +54,7 @@ export function getGameRecord(store: GameStore, gameId: string) {
 export function ensureGameRecord(store: GameStore, gameId: string) {
   const existing = getGameRecord(store, gameId);
   if (existing) return existing;
-  const record = { started: false };
+  const record: GameRecord = { started: false, botPlaySpeed: "instant" };
   store.records.set(gameId, record);
   return record;
 }
@@ -82,6 +87,12 @@ export function deleteGame(store: GameStore, gameId: string) {
   if (timer) {
     clearTimeout(timer);
     store.resolveTimers.delete(gameId);
+  }
+
+  const botTimer = store.botTimers.get(gameId);
+  if (botTimer) {
+    clearTimeout(botTimer);
+    store.botTimers.delete(gameId);
   }
 
   // Clear bots for this game

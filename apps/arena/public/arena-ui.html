@@ -1,0 +1,478 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Stellcon Arena</title>
+    <style>
+      :root {
+        color-scheme: dark;
+      }
+      body {
+        margin: 0;
+        font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+        background: radial-gradient(1200px 800px at 20% 0%, rgba(70, 120, 255, 0.16), transparent 55%),
+          radial-gradient(1000px 700px at 80% 10%, rgba(190, 90, 255, 0.14), transparent 55%),
+          radial-gradient(900px 700px at 50% 90%, rgba(50, 220, 190, 0.1), transparent 60%),
+          #060912;
+        color: rgba(240, 247, 255, 0.92);
+      }
+      header {
+        padding: 18px 20px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+        background: rgba(6, 9, 18, 0.55);
+        backdrop-filter: blur(14px);
+        position: sticky;
+        top: 0;
+        z-index: 10;
+      }
+      header h1 {
+        margin: 0;
+        font-size: 16px;
+        letter-spacing: 0.6px;
+        text-transform: uppercase;
+        color: rgba(225, 238, 255, 0.92);
+      }
+      header .sub {
+        margin-top: 6px;
+        font-size: 12px;
+        color: rgba(200, 218, 240, 0.75);
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+        align-items: center;
+      }
+      a {
+        color: rgba(120, 180, 255, 0.95);
+        text-decoration: none;
+      }
+      a:hover {
+        text-decoration: underline;
+      }
+      main {
+        padding: 18px 20px 28px;
+        max-width: 1200px;
+        margin: 0 auto;
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 14px;
+      }
+      @media (max-width: 1000px) {
+        .grid {
+          grid-template-columns: 1fr;
+        }
+      }
+      .card {
+        background: rgba(11, 16, 28, 0.62);
+        border: 1px solid rgba(255, 255, 255, 0.09);
+        border-radius: 16px;
+        padding: 14px;
+        box-shadow: 0 18px 50px rgba(0, 0, 0, 0.38);
+      }
+      .card h2 {
+        margin: 0 0 10px;
+        font-size: 14px;
+        color: rgba(225, 238, 255, 0.9);
+      }
+      .row {
+        display: grid;
+        grid-template-columns: 140px 1fr;
+        gap: 10px;
+        align-items: center;
+        margin-bottom: 8px;
+      }
+      label {
+        font-size: 12px;
+        color: rgba(205, 224, 248, 0.78);
+      }
+      input,
+      select,
+      textarea {
+        width: 100%;
+        box-sizing: border-box;
+        padding: 9px 10px;
+        border-radius: 12px;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        background: rgba(4, 7, 12, 0.65);
+        color: rgba(240, 247, 255, 0.92);
+        outline: none;
+      }
+      textarea {
+        min-height: 220px;
+        resize: vertical;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+        font-size: 12px;
+        line-height: 1.35;
+      }
+      .btns {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+        margin-top: 10px;
+      }
+      button {
+        appearance: none;
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        background: rgba(20, 28, 44, 0.88);
+        color: rgba(240, 247, 255, 0.92);
+        padding: 9px 12px;
+        border-radius: 12px;
+        cursor: pointer;
+      }
+      button.primary {
+        background: rgba(60, 130, 255, 0.85);
+        border-color: rgba(90, 155, 255, 0.9);
+      }
+      button.danger {
+        background: rgba(220, 70, 90, 0.85);
+        border-color: rgba(255, 95, 110, 0.9);
+      }
+      button:disabled {
+        opacity: 0.55;
+        cursor: not-allowed;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+      }
+      th,
+      td {
+        padding: 10px 8px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+        font-size: 12px;
+        text-align: left;
+        vertical-align: top;
+      }
+      th {
+        color: rgba(210, 226, 247, 0.8);
+        font-weight: 600;
+      }
+      .muted {
+        color: rgba(200, 218, 240, 0.65);
+      }
+      .pill {
+        display: inline-block;
+        padding: 2px 8px;
+        border-radius: 999px;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        background: rgba(8, 12, 20, 0.4);
+        font-size: 11px;
+        color: rgba(225, 238, 255, 0.82);
+      }
+      .status-running {
+        border-color: rgba(80, 170, 255, 0.5);
+        color: rgba(170, 220, 255, 0.95);
+      }
+      .status-completed {
+        border-color: rgba(60, 220, 160, 0.45);
+        color: rgba(160, 255, 220, 0.95);
+      }
+      .status-failed {
+        border-color: rgba(255, 90, 110, 0.5);
+        color: rgba(255, 170, 180, 0.95);
+      }
+      .status-cancelled {
+        border-color: rgba(255, 205, 90, 0.45);
+        color: rgba(255, 235, 170, 0.95);
+      }
+      .status-queued {
+        border-color: rgba(255, 255, 255, 0.14);
+        color: rgba(225, 238, 255, 0.78);
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>Stellcon Arena</h1>
+      <div class="sub">
+        <span class="muted">Local UI for tournament + training runs</span>
+        <span class="muted">•</span>
+        <a href="/api/matrix" target="_blank" rel="noreferrer">Open matrix JSON</a>
+        <span class="muted">•</span>
+        <a href="/api/out-files" target="_blank" rel="noreferrer">List output files</a>
+        <span class="muted">•</span>
+        <span id="statusLine" class="muted"></span>
+      </div>
+    </header>
+
+    <main>
+      <div class="grid">
+        <div class="card">
+          <h2>New training run</h2>
+          <div class="row">
+            <label for="trainMap">Map</label>
+            <select id="trainMap">
+              <option value="small">small</option>
+              <option value="medium" selected>medium</option>
+              <option value="large">large</option>
+              <option value="massive">massive</option>
+            </select>
+          </div>
+          <div class="row">
+            <label for="trainPlayers">Players</label>
+            <input id="trainPlayers" type="number" min="2" max="8" value="4" />
+          </div>
+          <div class="row">
+            <label for="trainMaxTurns">Max turns</label>
+            <input id="trainMaxTurns" type="number" min="10" max="200" value="20" />
+          </div>
+          <div class="row">
+            <label for="trainIters">Iters</label>
+            <input id="trainIters" type="number" min="1" max="2000" value="60" />
+          </div>
+          <div class="row">
+            <label for="trainEvalGames">Eval games</label>
+            <input id="trainEvalGames" type="number" min="2" max="500" value="6" />
+          </div>
+          <div class="row">
+            <label for="trainPopulation">Population</label>
+            <input id="trainPopulation" type="number" min="2" max="128" value="8" />
+          </div>
+          <div class="row">
+            <label for="trainThreads">Threads</label>
+            <input id="trainThreads" type="number" min="1" max="32" value="8" />
+          </div>
+          <div class="btns">
+            <button class="primary" id="trainStart">Start training</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <h2>New tournament run</h2>
+          <div class="row">
+            <label for="tourMap">Map</label>
+            <select id="tourMap">
+              <option value="small">small</option>
+              <option value="medium" selected>medium</option>
+              <option value="large">large</option>
+              <option value="massive">massive</option>
+            </select>
+          </div>
+          <div class="row">
+            <label for="tourPlayers">Players</label>
+            <input id="tourPlayers" type="number" min="2" max="8" value="4" />
+          </div>
+          <div class="row">
+            <label for="tourMaxTurns">Max turns</label>
+            <input id="tourMaxTurns" type="number" min="10" max="200" value="20" />
+          </div>
+          <div class="row">
+            <label for="tourGames">Games</label>
+            <input id="tourGames" type="number" min="1" max="5000" value="50" />
+          </div>
+          <div class="row">
+            <label for="tourThreads">Threads</label>
+            <input id="tourThreads" type="number" min="1" max="32" value="8" />
+          </div>
+          <div class="btns">
+            <button class="primary" id="tourStart">Start tournament</button>
+          </div>
+        </div>
+      </div>
+
+      <div style="height: 14px"></div>
+
+      <div class="grid">
+        <div class="card">
+          <h2>Runs</h2>
+          <div class="btns" style="margin-top: 0">
+            <button id="refreshRuns">Refresh</button>
+            <button id="clearCompleted">Clear completed</button>
+          </div>
+          <div style="height: 10px"></div>
+          <div style="overflow: auto; max-height: 520px">
+            <table>
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>Type</th>
+                  <th>Status</th>
+                  <th>Progress</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="runsTbody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="card">
+          <h2>Run details</h2>
+          <div class="muted" id="selectedMeta">Select a run…</div>
+          <div style="height: 10px"></div>
+          <textarea id="runLog" readonly spellcheck="false"></textarea>
+        </div>
+      </div>
+    </main>
+
+    <script>
+      const el = (id) => document.getElementById(id);
+      const statusLine = el("statusLine");
+      const runsTbody = el("runsTbody");
+      const runLog = el("runLog");
+      const selectedMeta = el("selectedMeta");
+
+      let selectedRunId = "";
+      let lastRuns = [];
+      let pollTimer = null;
+
+      function pill(status) {
+        const cls = `pill status-${status}`;
+        return `<span class="${cls}">${status}</span>`;
+      }
+
+      function fmtProgress(run) {
+        if (!run.progress) return "";
+        if (run.type === "train") {
+          const iter = run.progress.iter ?? 0;
+          const iters = run.progress.iters ?? 0;
+          const score = typeof run.progress.bestScore === "number" ? run.progress.bestScore.toFixed(2) : "";
+          return `${iter}/${iters} score=${score}`;
+        }
+        if (run.type === "tournament") {
+          const done = run.progress.completed ?? 0;
+          const total = run.progress.total ?? 0;
+          return `${done}/${total}`;
+        }
+        return "";
+      }
+
+      async function api(method, path, body) {
+        const res = await fetch(path, {
+          method,
+          headers: body ? { "content-type": "application/json" } : undefined,
+          body: body ? JSON.stringify(body) : undefined,
+        });
+        const text = await res.text();
+        const json = text ? JSON.parse(text) : null;
+        if (!res.ok) {
+          const msg = json && json.error ? json.error : `HTTP ${res.status}`;
+          throw new Error(msg);
+        }
+        return json;
+      }
+
+      async function refresh() {
+        const status = await api("GET", "/api/status");
+        statusLine.textContent = `running=${status.running ? "yes" : "no"} queue=${status.queueLength} runs=${status.runs}`;
+
+        const runs = await api("GET", "/api/runs");
+        lastRuns = runs.items || [];
+
+        runsTbody.innerHTML = lastRuns
+          .map((run) => {
+            const isSelected = run.id === selectedRunId;
+            const rowStyle = isSelected ? ' style="background: rgba(90, 155, 255, 0.10)"' : "";
+            const progress = fmtProgress(run);
+            const canCancel = run.status === "queued" || run.status === "running";
+            return `
+            <tr${rowStyle}>
+              <td><a href="#" data-select="${run.id}">${run.id}</a></td>
+              <td>${run.type}</td>
+              <td>${pill(run.status)}</td>
+              <td class="muted">${progress}</td>
+              <td>
+                <button ${canCancel ? "" : "disabled"} data-cancel="${run.id}" class="danger">Cancel</button>
+              </td>
+            </tr>
+          `;
+          })
+          .join("");
+
+        if (selectedRunId) {
+          await loadRun(selectedRunId);
+        }
+      }
+
+      async function loadRun(id) {
+        const run = await api("GET", `/api/runs/${encodeURIComponent(id)}`);
+        selectedRunId = id;
+        selectedMeta.textContent = `${run.type} • ${run.status} • created ${new Date(run.createdAt).toLocaleString()}`;
+        runLog.value = (run.logs || []).join("\n");
+      }
+
+      function readNumber(id) {
+        const raw = Number.parseInt(el(id).value, 10);
+        return Number.isFinite(raw) ? raw : 0;
+      }
+
+      async function startTraining() {
+        const payload = {
+          mapSize: el("trainMap").value,
+          players: readNumber("trainPlayers"),
+          maxTurns: readNumber("trainMaxTurns"),
+          iters: readNumber("trainIters"),
+          evalGames: readNumber("trainEvalGames"),
+          population: readNumber("trainPopulation"),
+          threads: readNumber("trainThreads"),
+        };
+        const resp = await api("POST", "/api/train", payload);
+        selectedRunId = resp.runId;
+        await refresh();
+      }
+
+      async function startTournament() {
+        const payload = {
+          mapSize: el("tourMap").value,
+          players: readNumber("tourPlayers"),
+          maxTurns: readNumber("tourMaxTurns"),
+          games: readNumber("tourGames"),
+          threads: readNumber("tourThreads"),
+        };
+        const resp = await api("POST", "/api/tournament", payload);
+        selectedRunId = resp.runId;
+        await refresh();
+      }
+
+      async function cancelRun(id) {
+        await api("POST", `/api/runs/${encodeURIComponent(id)}/cancel`);
+        await refresh();
+      }
+
+      async function clearCompleted() {
+        await api("POST", "/api/runs/clearCompleted");
+        await refresh();
+      }
+
+      document.addEventListener("click", async (event) => {
+        const target = event.target;
+        if (!(target instanceof HTMLElement)) return;
+        const sel = target.getAttribute("data-select");
+        const cancel = target.getAttribute("data-cancel");
+        if (sel) {
+          event.preventDefault();
+          await loadRun(sel);
+          await refresh();
+          return;
+        }
+        if (cancel) {
+          event.preventDefault();
+          await cancelRun(cancel);
+          return;
+        }
+      });
+
+      el("trainStart").addEventListener("click", () => startTraining().catch((e) => alert(e.message)));
+      el("tourStart").addEventListener("click", () => startTournament().catch((e) => alert(e.message)));
+      el("refreshRuns").addEventListener("click", () => refresh().catch((e) => alert(e.message)));
+      el("clearCompleted").addEventListener("click", () => clearCompleted().catch((e) => alert(e.message)));
+
+      async function bootstrap() {
+        try {
+          const defaults = await api("GET", "/api/defaults");
+          if (defaults.defaultThreads) {
+            el("trainThreads").value = String(defaults.defaultThreads);
+            el("tourThreads").value = String(defaults.defaultThreads);
+          }
+        } catch {}
+        await refresh();
+        pollTimer = setInterval(() => refresh().catch(() => {}), 1000);
+      }
+
+      bootstrap();
+    </script>
+  </body>
+</html>
+

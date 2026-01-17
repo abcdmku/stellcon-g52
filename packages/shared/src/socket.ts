@@ -1,4 +1,4 @@
-import type { BotDifficulty, GameConfig, GameListItem, GameState, Orders } from "./types.js";
+import type { BotDifficulty, BotPlaySpeed, GameConfig, GameListItem, GameState, Orders } from "./types.js";
 
 export interface CreateGamePayload {
   name: string;
@@ -55,6 +55,10 @@ export interface RemoveBotPayload {
   playerId: string;
 }
 
+export interface SetBotPlaySpeedPayload {
+  speed: BotPlaySpeed;
+}
+
 export interface GameIdResponse {
   gameId: string;
   playerId: string;
@@ -99,5 +103,7 @@ export interface ClientToServerEvents {
   declineAlliance: (payload: DeclineAlliancePayload, callback?: (response: MaybeError<OkResponse>) => void) => void;
   addBot: (payload: AddBotPayload, callback?: (response: MaybeError<OkResponse>) => void) => void;
   removeBot: (payload: RemoveBotPayload, callback?: (response: MaybeError<OkResponse>) => void) => void;
+  setBotPlaySpeed: (payload: SetBotPlaySpeedPayload, callback?: (response: MaybeError<OkResponse>) => void) => void;
+  startGame: (payload: unknown, callback?: (response: MaybeError<OkResponse>) => void) => void;
   startGameEarly: (payload: unknown, callback?: (response: MaybeError<OkResponse>) => void) => void;
 }

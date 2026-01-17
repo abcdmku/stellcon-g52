@@ -1,0 +1,20 @@
+{
+  "name": "arena",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "dev": "node -e \"\"",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "tournament": "node dist/index.js tournament",
+    "train": "node dist/index.js train",
+    "ui": "node dist/index.js ui"
+  },
+  "dependencies": {
+    "@stellcon/bots": "workspace:*",
+    "@stellcon/shared": "workspace:*"
+  }
+}
