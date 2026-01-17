@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { io, type Socket } from "socket.io-client";
 import type {
   AcceptAlliancePayload,
+  AddBotPayload,
   ClientToServerEvents,
   CreateGamePayload,
   DeclineAlliancePayload,
@@ -9,6 +10,7 @@ import type {
   MaybeError,
   OkResponse,
   RequestAlliancePayload,
+  RemoveBotPayload,
   RetractAlliancePayload,
   ServerToClientEvents,
   WatchGamePayload,
@@ -159,6 +161,20 @@ export function useGameSocket(serverUrl: string, demoMode: boolean, callbacks: S
     [socket]
   );
 
+  const addBot = useCallback(
+    (payload: AddBotPayload, callback?: (response: MaybeError<OkResponse>) => void) => {
+      socket?.emit("addBot", payload, callback);
+    },
+    [socket]
+  );
+
+  const removeBot = useCallback(
+    (payload: RemoveBotPayload, callback?: (response: MaybeError<OkResponse>) => void) => {
+      socket?.emit("removeBot", payload, callback);
+    },
+    [socket]
+  );
+
   return {
     socket,
     createGame,
@@ -175,5 +191,7 @@ export function useGameSocket(serverUrl: string, demoMode: boolean, callbacks: S
     retractAlliance,
     declineAlliance,
     startGameEarly,
+    addBot,
+    removeBot,
   };
 }

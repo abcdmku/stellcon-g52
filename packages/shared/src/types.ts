@@ -2,6 +2,7 @@ export type ResourceType = "fusion" | "terrain" | "metal" | "crystal";
 export type PowerupKey = "stellarBomb" | "terraform" | "defenseNet" | "wormhole";
 export type Phase = "planning" | "resolving" | "complete";
 export type MapSize = "small" | "medium" | "large" | "massive";
+export type BotDifficulty = "easy" | "medium" | "hard";
 
 export type ResourceMap = Record<ResourceType, number>;
 
@@ -73,6 +74,8 @@ export interface PlayerState {
   fleetsToPlace: number;
   alliances: Record<string, number>;
   connected?: boolean;
+  isBot?: boolean;
+  botDifficulty?: BotDifficulty;
   locked: boolean;
   orders: Orders;
 }

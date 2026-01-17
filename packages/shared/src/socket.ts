@@ -1,4 +1,4 @@
-import type { GameConfig, GameListItem, GameState, Orders } from "./types.js";
+import type { BotDifficulty, GameConfig, GameListItem, GameState, Orders } from "./types.js";
 
 export interface CreateGamePayload {
   name: string;
@@ -47,6 +47,14 @@ export interface DeclineAlliancePayload {
   fromId: string;
 }
 
+export interface AddBotPayload {
+  difficulty: BotDifficulty;
+}
+
+export interface RemoveBotPayload {
+  playerId: string;
+}
+
 export interface GameIdResponse {
   gameId: string;
   playerId: string;
@@ -89,5 +97,7 @@ export interface ClientToServerEvents {
   acceptAlliance: (payload: AcceptAlliancePayload, callback?: (response: MaybeError<OkResponse>) => void) => void;
   retractAlliance: (payload: RetractAlliancePayload, callback?: (response: MaybeError<OkResponse>) => void) => void;
   declineAlliance: (payload: DeclineAlliancePayload, callback?: (response: MaybeError<OkResponse>) => void) => void;
+  addBot: (payload: AddBotPayload, callback?: (response: MaybeError<OkResponse>) => void) => void;
+  removeBot: (payload: RemoveBotPayload, callback?: (response: MaybeError<OkResponse>) => void) => void;
   startGameEarly: (payload: unknown, callback?: (response: MaybeError<OkResponse>) => void) => void;
 }

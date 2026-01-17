@@ -1,5 +1,5 @@
 import { PLAYER_COLORS } from "@stellcon/shared";
-import type { GameListItem, GameState } from "@stellcon/shared";
+import type { BotDifficulty, GameListItem, GameState } from "@stellcon/shared";
 
 export type Session = {
   gameId: string;
@@ -12,12 +12,19 @@ export type GameRecord = {
   started: boolean;
 };
 
+export type BotRecord = {
+  gameId: string;
+  playerId: string;
+  difficulty: BotDifficulty;
+};
+
 export type GameStore = {
   games: Map<string, GameState>;
   records: Map<string, GameRecord>;
   sessions: Map<string, Session>;
   pendingAlliances: Map<string, boolean>;
   resolveTimers: Map<string, ResolveTimer>;
+  bots: Map<string, BotRecord>;
 };
 
 export function createGameStore(): GameStore {
@@ -27,6 +34,7 @@ export function createGameStore(): GameStore {
     sessions: new Map(),
     pendingAlliances: new Map(),
     resolveTimers: new Map(),
+    bots: new Map(),
   };
 }
 
@@ -74,6 +82,13 @@ export function deleteGame(store: GameStore, gameId: string) {
   if (timer) {
     clearTimeout(timer);
     store.resolveTimers.delete(gameId);
+  }
+
+  // Clear bots for this game
+  for (const [playerId, bot] of store.bots.entries()) {
+    if (bot.gameId === gameId) {
+      store.bots.delete(playerId);
+    }
   }
 
   // Clear pending alliances for this game

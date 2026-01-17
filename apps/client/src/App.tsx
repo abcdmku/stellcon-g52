@@ -1,7 +1,7 @@
 import type { CSSProperties } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { buildConnectedComponentIndex, computeIncome, inSameConnectedComponent, PLAYER_COLORS, POWERUPS, RESOURCE_COLORS, RESOURCE_TYPES, RESOLUTION_TRAVEL_MS } from "@stellcon/shared";
-import type { GameListItem, GameState, Orders, PowerupKey } from "@stellcon/shared";
+import type { BotDifficulty, GameListItem, GameState, Orders, PowerupKey } from "@stellcon/shared";
 import { demoPlayerId, demoState } from "./demoState.js";
 import Board from "./features/board/Board";
 import Lobby from "./features/lobby/Lobby.jsx";
@@ -422,6 +422,7 @@ function App() {
   const [musicMuted, setMusicMuted] = useState(() => window.localStorage.getItem("stellcon.muteMusic") === "1");
   const [sfxMuted, setSfxMuted] = useState(() => window.localStorage.getItem("stellcon.muteSfx") === "1");
   const [codeCopied, setCodeCopied] = useState(false);
+  const [botDifficulty, setBotDifficulty] = useState<BotDifficulty>("medium");
   const [showJoinPrompt, setShowJoinPrompt] = useState(false);
   const [rematchInfo, setRematchInfo] = useState<{ gameId: string; creatorName: string } | null>(null);
   const [joinName, setJoinName] = useState(() => window.localStorage.getItem("stellcon.name") || "");
@@ -530,6 +531,8 @@ function App() {
     retractAlliance,
     declineAlliance,
     startGameEarly,
+    addBot,
+    removeBot,
   } = useGameSocket(SERVER_URL, DEMO_MODE, socketCallbacks);
 
   const me = playerId && state?.players ? state.players[playerId] : null;
@@ -1547,6 +1550,7 @@ function App() {
   const isTie = state.winnerId === null && isComplete;
   const winnerPlayer = isTie ? null : (state.winnerId ? players.find((player) => player.id === state.winnerId) : rankedPlayers[0] || null);
   const isWaitingForPlayers = state.turn === 1 && players.length < state.config.maxPlayers;
+  const seatsRemaining = Math.max(0, state.config.maxPlayers - players.length);
 
   // For join prompt: calculate available colors and existing names
   const takenColors = players.map((p) => p.color);
@@ -1585,8 +1589,30 @@ function App() {
                 {players.map((player) => (
                   <div key={player.id} className="waiting-player" style={{ "--player-color": player.color } as CSSProperties}>
                     <span className="waiting-player-dot" />
-                    <span className="waiting-player-name">{player.name}</span>
+                    <span className="waiting-player-name">
+                      {player.name}
+                      {player.isBot ? (
+                        <span className="waiting-player-bot-tag">
+                          AI{player.botDifficulty ? ` · ${String(player.botDifficulty).toUpperCase()}` : ""}
+                        </span>
+                      ) : null}
+                    </span>
                     {player.id === playerId ? <span className="waiting-player-you">(You)</span> : null}
+                    {playerId && player.isBot && !DEMO_MODE ? (
+                      <button
+                        type="button"
+                        className="waiting-bot-remove"
+                        onClick={() => {
+                          removeBot({ playerId: player.id }, (response) => {
+                            if (response && "error" in response) setError(response.error);
+                          });
+                        }}
+                        title="Remove bot"
+                        aria-label={`Remove ${player.name}`}
+                      >
+                        Remove
+                      </button>
+                    ) : null}
                   </div>
                 ))}
               </div>
@@ -1610,6 +1636,35 @@ function App() {
                 <span className={`waiting-code-hint ${codeCopied ? "copied" : ""}`}>{codeCopied ? "Copied!" : "Click to copy"}</span>
               </button>
               <div className="waiting-hint">Share the game code with friends to join</div>
+              {playerId && !DEMO_MODE ? (
+                <div className="waiting-bots">
+                  <div className="waiting-bots-title">Add AI Commander</div>
+                  <div className="waiting-bots-controls">
+                    <select
+                      className="waiting-bots-select"
+                      value={botDifficulty}
+                      onChange={(e) => setBotDifficulty(e.target.value as BotDifficulty)}
+                      aria-label="Bot difficulty"
+                    >
+                      <option value="easy">Easy</option>
+                      <option value="medium">Medium</option>
+                      <option value="hard">Hard</option>
+                    </select>
+                    <button
+                      type="button"
+                      className="waiting-bots-add"
+                      disabled={seatsRemaining <= 0}
+                      onClick={() => {
+                        addBot({ difficulty: botDifficulty }, (response) => {
+                          if (response && "error" in response) setError(response.error);
+                        });
+                      }}
+                    >
+                      Add Bot ({seatsRemaining} left)
+                    </button>
+                  </div>
+                </div>
+              ) : null}
               {playerId && state.config.maxPlayers > 2 && players.length >= 2 ? (
                 <button
                   type="button"

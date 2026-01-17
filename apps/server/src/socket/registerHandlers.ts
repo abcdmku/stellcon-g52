@@ -12,7 +12,7 @@ import {
   startPlanningPhase,
   submitOrders,
 } from "@stellcon/shared";
-import type { ClientToServerEvents, ServerToClientEvents, GameState } from "@stellcon/shared";
+import type { BotDifficulty, ClientToServerEvents, ServerToClientEvents, GameState } from "@stellcon/shared";
 import {
   clearSession,
   deleteGame,
@@ -27,6 +27,7 @@ import {
   type GameStore,
 } from "../store/gameStore.js";
 import { logServerError } from "../logging.js";
+import { planBotOrders } from "../ai/bots.js";
 
 type IO = IOServer<ClientToServerEvents, ServerToClientEvents>;
 type GameSocket = Socket<ClientToServerEvents, ServerToClientEvents>;
@@ -48,6 +49,10 @@ function ensureUniqueName(game: GameState, proposedName: string) {
     }
   }
   return name;
+}
+
+function isBotDifficulty(value: unknown): value is BotDifficulty {
+  return value === "easy" || value === "medium" || value === "hard";
 }
 
 export function registerSocketHandlers(io: IO, store: GameStore) {
@@ -95,6 +100,47 @@ export function registerSocketHandlers(io: IO, store: GameStore) {
     }
   };
 
+  const runBotsForGame = (gameId: string) => {
+    const game = getGame(store, gameId);
+    if (!game) return;
+    const record = getGameRecord(store, gameId);
+    if (!record?.started) return;
+    if (game.phase !== "planning") return;
+
+    let anySubmitted = false;
+    let shouldResolve = false;
+
+    for (const [botPlayerId, bot] of store.bots.entries()) {
+      if (bot.gameId !== gameId) continue;
+      const player = game.players[botPlayerId];
+      if (!player || !player.isBot) {
+        store.bots.delete(botPlayerId);
+        continue;
+      }
+      if (player.locked) continue;
+
+      try {
+        const orders = planBotOrders(game, botPlayerId, bot.difficulty);
+        submitOrders(game, botPlayerId, orders);
+        anySubmitted = true;
+        if (lockIn(game, botPlayerId)) {
+          shouldResolve = true;
+        }
+      } catch (error) {
+        logServerError("botPlan", error, { gameId, botPlayerId, difficulty: bot.difficulty });
+      }
+    }
+
+    if (shouldResolve && game.phase === "planning") {
+      beginResolution(game);
+      scheduleFinalize(game);
+    }
+
+    if (anySubmitted || shouldResolve) {
+      emitState(gameId);
+    }
+  };
+
   const scheduleFinalize = (game: GameState) => {
     if (store.resolveTimers.has(game.id)) {
       clearTimeout(store.resolveTimers.get(game.id));
@@ -109,6 +155,7 @@ export function registerSocketHandlers(io: IO, store: GameStore) {
       try {
         store.resolveTimers.delete(game.id);
         finalizeResolution(game);
+        runBotsForGame(game.id);
         clearPendingAlliancesForGame(game.id);
         emitState(game.id);
         emitGamesList();
@@ -122,6 +169,7 @@ export function registerSocketHandlers(io: IO, store: GameStore) {
           delete game.resolutionBattles;
           delete game.resolutionPlan;
           startPlanningPhase(game);
+          runBotsForGame(game.id);
           emitState(game.id);
           emitGamesList();
         } catch (recoverError) {
@@ -138,7 +186,22 @@ export function registerSocketHandlers(io: IO, store: GameStore) {
     if (!record.started && players >= game.config.maxPlayers) {
       record.started = true;
       startGame(game);
+      runBotsForGame(game.id);
     }
+  };
+
+  const createBotName = (game: GameState, difficulty: BotDifficulty) => {
+    const label = difficulty === "easy" ? "Easy" : difficulty === "medium" ? "Medium" : "Hard";
+    const base = `AI (${label})`;
+    for (let i = 1; i <= 99; i += 1) {
+      const candidate = i === 1 ? base : `${base} ${i}`;
+      try {
+        return ensureUniqueName(game, candidate);
+      } catch {
+        // keep trying
+      }
+    }
+    return ensureUniqueName(game, `${base} ${nanoid(4)}`);
   };
 
   const forceResolveIfExpired = () => {
@@ -240,6 +303,7 @@ export function registerSocketHandlers(io: IO, store: GameStore) {
         const game = ensureGame(store, gameId);
         const player = game.players[playerId];
         if (!player) throw new Error("Player not found");
+        if (player.isBot) throw new Error("Cannot rejoin as an AI player");
 
         player.connected = true;
         trackSession(store, socket.id, { gameId, playerId });
@@ -268,6 +332,7 @@ export function registerSocketHandlers(io: IO, store: GameStore) {
         }
 
         const [playerId, player] = playerEntry;
+        if (player.isBot) throw new Error("Cannot rejoin as an AI player");
 
         // Check if player is already connected from another socket
         const existingSession = Array.from(store.sessions.values()).find(
@@ -337,6 +402,8 @@ export function registerSocketHandlers(io: IO, store: GameStore) {
         if (!session) throw new Error("Not in game");
         if (!session.playerId) throw new Error("Spectators cannot submit orders");
         const game = ensureGame(store, session.gameId);
+        const record = ensureGameRecord(store, game.id);
+        if (!record.started) throw new Error("Game hasn't started yet");
         submitOrders(game, session.playerId, orders);
         emitState(game.id);
         callback?.({ ok: true });
@@ -351,6 +418,8 @@ export function registerSocketHandlers(io: IO, store: GameStore) {
         if (!session) throw new Error("Not in game");
         if (!session.playerId) throw new Error("Spectators cannot lock in");
         const game = ensureGame(store, session.gameId);
+        const record = ensureGameRecord(store, game.id);
+        if (!record.started) throw new Error("Game hasn't started yet");
         const allLocked = lockIn(game, session.playerId);
         if (allLocked) {
           beginResolution(game);
@@ -449,6 +518,60 @@ export function registerSocketHandlers(io: IO, store: GameStore) {
       }
     });
 
+    socket.on("addBot", (payload, callback) => {
+      try {
+        const session = getSession(store, socket.id);
+        if (!session) throw new Error("Not in game");
+        if (!session.playerId) throw new Error("Spectators cannot add bots");
+        const game = ensureGame(store, session.gameId);
+        const record = ensureGameRecord(store, game.id);
+        if (record.started) throw new Error("Game already started");
+        if (!payload || !isBotDifficulty(payload.difficulty)) throw new Error("Invalid bot difficulty");
+        if (Object.keys(game.players).length >= game.config.maxPlayers) throw new Error("Game is full");
+
+        const botPlayerId = nanoid(8);
+        const botName = createBotName(game, payload.difficulty);
+        addPlayer(game, { id: botPlayerId, name: botName });
+        const botPlayer = game.players[botPlayerId];
+        botPlayer.isBot = true;
+        botPlayer.botDifficulty = payload.difficulty;
+        botPlayer.connected = true;
+        botPlayer.locked = false;
+        store.bots.set(botPlayerId, { gameId: game.id, playerId: botPlayerId, difficulty: payload.difficulty });
+
+        maybeStartGame(game);
+        emitState(game.id);
+        emitGamesList();
+        callback?.({ ok: true });
+      } catch (error) {
+        callback?.({ error: error instanceof Error ? error.message : String(error) });
+      }
+    });
+
+    socket.on("removeBot", (payload, callback) => {
+      try {
+        const session = getSession(store, socket.id);
+        if (!session) throw new Error("Not in game");
+        if (!session.playerId) throw new Error("Spectators cannot remove bots");
+        const game = ensureGame(store, session.gameId);
+        const record = ensureGameRecord(store, game.id);
+        if (record.started) throw new Error("Game already started");
+        const targetId = payload?.playerId;
+        if (!targetId) throw new Error("Bot id required");
+        const targetPlayer = game.players[targetId];
+        if (!targetPlayer) throw new Error("Player not found");
+        if (!targetPlayer.isBot) throw new Error("Not a bot player");
+
+        delete game.players[targetId];
+        store.bots.delete(targetId);
+        emitState(game.id);
+        emitGamesList();
+        callback?.({ ok: true });
+      } catch (error) {
+        callback?.({ error: error instanceof Error ? error.message : String(error) });
+      }
+    });
+
     socket.on("startGameEarly", (payload, callback) => {
       try {
         const session = getSession(store, socket.id);
@@ -462,6 +585,7 @@ export function registerSocketHandlers(io: IO, store: GameStore) {
         if (game.config.maxPlayers < 3) throw new Error("Cannot start early for 2-player games");
         record.started = true;
         startGame(game);
+        runBotsForGame(game.id);
         emitState(game.id);
         emitGamesList();
         callback?.({ ok: true });
