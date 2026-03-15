@@ -4,6 +4,25 @@ import path from "path";
 
 export function createApp() {
   const app = express();
+  app.disable("x-powered-by");
+  app.set("trust proxy", 1);
+
+  app.use((req, res, next) => {
+    const forwardedProto = req.get("x-forwarded-proto");
+    const isHttps = req.secure || forwardedProto === "https";
+
+    if (isHttps) {
+      res.setHeader("Strict-Transport-Security", "max-age=31536000");
+    }
+
+    res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    res.setHeader("X-Frame-Options", "DENY");
+    res.setHeader("Permissions-Policy", "camera=(), geolocation=(), microphone=()");
+
+    next();
+  });
+
   app.use(cors());
   app.get("/health", (req, res) => {
     res.json({ ok: true });
